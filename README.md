@@ -1,4 +1,4 @@
-# DIL: Towards Disentangled Preference Optimization Dynamics
+# Towards Disentangled Preference Optimization Dynamics
 
 **[中文说明 → `README_cn.md`](README_cn.md)**
 
