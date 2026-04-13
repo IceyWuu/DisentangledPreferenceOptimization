@@ -1,0 +1,64 @@
+# Model arguments
+model_name_or_path: ../ModelAndDatasets/alignment-handbook/pythia-2.8b
+tokenizer_name_or_path: null
+torch_dtype: null
+attn_implementation: sdpa  # GPT-NeoX layers expect the stock SDPA attention kernels
+use_flash_attention_2: false # Pythia 系列是基于 GPT‑NeoX 的实现，官方权重都是用标准 SDPA（scaled dot-product attention）编译的 FP16/BF16 kernel，flash-attention不支持。
+
+# PEFT arguments
+# 全量微调：关闭 PEFT/LoRA；下面超参仅作参考
+use_peft: true   # true 启用 PEFT（LoRA），false 全参微调
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules:                  # ← Pythia-2B 的线性层名（关键！）
+  - "query_key_value"
+  - "dense"
+  - "dense_h_to_4h"
+  - "dense_4h_to_h"
+# modules_to_save: ["lm_head"]        # 可选：微调输出层（推荐加）
+
+# Data training arguments
+dataset_mixer:
+  ../ModelAndDatasets/HuggingFaceH4/ultrafeedback_binarized: 1.0
+dataset_splits:
+  - train_prefs
+  - test_prefs
+preprocessing_num_workers: 2
+
+# DPO / LSIF trainer arguments
+bf16: true
+fp16: false
+beta: 1.0
+do_eval: false
+eval_strategy: steps
+eval_steps: 1000000
+gradient_accumulation_steps: 16
+# gradient_accumulation_steps: 1
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+hub_model_id: pythia-2b-simpo
+learning_rate: 5.0e-7
+log_level: info
+logging_steps: 1
+lr_scheduler_type: cosine
+max_length: 1024
+max_prompt_length: 512
+num_train_epochs: 1
+optim: adamw_torch
+output_dir: outputs/pythia-2b-base-simpo
+run_name: pythia-2b-base-simpo
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 2
+push_to_hub: false
+save_strategy: steps
+save_steps: 1000000
+report_to: []
+save_total_limit: 1
+seed: 42
+warmup_ratio: 0.1
+# --- Margin-chain logging (log > checkpoint). Scalars only; head-only gradients. ---
+# aexperiment 新实验
+track_margin_chain: true
+

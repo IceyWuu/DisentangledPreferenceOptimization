@@ -1,0 +1,52 @@
+# Model arguments
+model_name_or_path: ../ModelAndDatasets/alignment-handbook/qwen2.5-7b-instruct
+torch_dtype: null
+attn_implementation: flash_attention_2
+
+# PEFT arguments
+use_peft: true
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules: ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+# Data training arguments
+dataset_mixer:
+  ../ModelAndDatasets/HuggingFaceH4/ultrafeedback_binarized: 1.0
+dataset_splits:
+- train_prefs
+- test_prefs
+preprocessing_num_workers: 2
+
+# SimPOTrainer arguments
+bf16: true
+fp16: false
+
+beta: 2.0
+do_eval: false
+eval_strategy: steps
+eval_steps: 1000000
+gradient_accumulation_steps: 32
+gradient_checkpointing: false
+gradient_checkpointing_kwargs:
+  use_reentrant: False
+hub_model_id: dpo-exps
+learning_rate: 5.0e-5
+log_level: info
+logging_steps: 1
+lr_scheduler_type: cosine
+max_length: 1024
+max_prompt_length: 512
+num_train_epochs: 1
+optim: adamw_torch
+output_dir: outputs/qwen2.5-7b-instruct-dpo
+run_name: qwen2.5-7b-instruct-dpo
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+push_to_hub: false
+save_strategy: "steps"
+save_steps: 1000000
+report_to: []
+save_total_limit: 1
+seed: 42
+warmup_ratio: 0.03

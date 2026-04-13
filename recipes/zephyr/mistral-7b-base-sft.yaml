@@ -1,0 +1,50 @@
+# Model arguments
+model_name_or_path: ../ModelAndDatasets/alignment-handbook/local_models/mistralai/Mistral-7B-v0.1
+torch_dtype: null
+attn_implementation: flash_attention_2
+
+# PEFT arguments 
+use_peft: true
+lora_r: 16
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules: ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+# Data training arguments
+dataset_mixer:
+  ../ModelAndDatasets/HuggingFaceH4/ultrafeedback_binarized: 1.0
+dataset_splits:
+- train_sft
+- test_sft
+preprocessing_num_workers: 2
+
+# Training arguments
+bf16: true
+fp16: false
+do_eval: true
+eval_strategy: steps
+eval_steps: 1000000
+gradient_accumulation_steps: 16
+gradient_checkpointing: false
+gradient_checkpointing_kwargs:
+  use_reentrant: False
+hub_model_id: mistral-7b-sft
+learning_rate: 2.0e-5
+log_level: info
+logging_steps: 10
+lr_scheduler_type: cosine
+num_train_epochs: 1
+optim: adamw_torch
+output_dir: outputs/mistral-7b-base-sft
+run_name: mistral-7b-base-sft
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 2
+push_to_hub: false
+save_strategy: steps
+save_steps: 1000
+save_total_limit: 1
+seed: 42
+warmup_ratio: 0.1
+
+report_to: []
+

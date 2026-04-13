@@ -1,0 +1,2 @@
+deepspeed==0.17.6
+flash-attn==2.8.3

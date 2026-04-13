@@ -1,0 +1,13 @@
+torch==2.8.0
+numpy==1.26.4
+bitsandbytes==0.48.1
+accelerate==1.10.1
+transformers==4.57.0
+datasets==4.2.0
+peft==0.17.1
+trl==0.23.1
+pyarrow==21.0.0
+pynvml==11.5.0
+huggingface-hub==0.35.3
+wandb==0.17.6
+scipy==1.14.0

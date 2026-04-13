@@ -1,0 +1,57 @@
+# Model arguments
+# model_name_or_path: alignment-handbook/zephyr-7b-sft-qlora
+model_name_or_path: ../ModelAndDatasets/alignment-handbook/zephyr-7b-sft-qlora
+torch_dtype: null
+attn_implementation: flash_attention_2
+# attn_implementation: sdpa
+
+# PEFT arguments 
+use_peft: true  # Enable PEFT
+lora_r: 8      # LoRA rank
+lora_alpha: 16  # LoRA scaling factor
+lora_dropout: 0.05 # LoRA dropout
+lora_target_modules: ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"] # Target modules can vary; these are common for Mistral-like models
+
+# Data training arguments
+dataset_mixer:
+  # HuggingFaceH4/ultrafeedback_binarized: 1.0
+  ../ModelAndDatasets/HuggingFaceH4/ultrafeedback_binarized: 1.0
+dataset_splits:
+- train_prefs
+- test_prefs
+preprocessing_num_workers: 2
+
+# SimPOTrainer arguments
+bf16: true
+fp16: false
+
+beta: 2.0
+do_eval: false
+eval_strategy: steps
+eval_steps: 1000000 # 500 # 先不评估了，评估一次10几分钟，太慢了
+gradient_accumulation_steps: 32 
+gradient_checkpointing: false
+gradient_checkpointing_kwargs:
+  use_reentrant: False
+hub_model_id: simpo-exps
+learning_rate: 3.0e-7
+log_level: info
+logging_steps: 1
+lr_scheduler_type: cosine
+max_length: 1024
+max_prompt_length: 512
+num_train_epochs: 1
+optim: adamw_torch
+output_dir: outputs/mistral-7b-base-simpo
+run_name: mistral-7b-base-simpo
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1 # 4 # 改小了
+push_to_hub: false
+save_strategy: "steps"
+save_steps: 1000000
+# report_to:
+# - wandb
+report_to: [] # use this if you don't want to report to wandb
+save_total_limit: 1
+seed: 42
+warmup_ratio: 0.1
