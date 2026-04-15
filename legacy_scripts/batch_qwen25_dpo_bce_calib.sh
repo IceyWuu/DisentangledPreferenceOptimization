@@ -6,12 +6,12 @@
 #   - 多张卡：按波次并行（每波最多 len(GPU_IDS) 个同时跑）
 #
 # 多卡示例（务必用绝对路径，nohup 时工作目录可靠）：
-#   nohup env GPU_IDS=0,1,2,3 bash /work1/weichen/DIL/batch_qwen25_dpo_bce_calib.sh \
-#     >> /work1/weichen/DIL/outputs/batch_qwen25.log 2>&1 &
+#   nohup env GPU_IDS=0,1,2,3 bash /work1/weichen/DPO/batch_qwen25_dpo_bce_calib.sh \
+#     >> /work1/weichen/DPO/outputs/batch_qwen25.log 2>&1 &
 #
 # 等价直连：
 #   GPU_IDS=0,1,2,3 LOSS_TYPES="DPO BCE" ENABLE_DB_CALIB=both \
-#     bash /work1/weichen/DIL/aexperiment_qwen2.5_7b_instruct.sh
+#     bash /work1/weichen/DPO/aexperiment_qwen2.5_7b_instruct.sh
 
 set -euo pipefail
 

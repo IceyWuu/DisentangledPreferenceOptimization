@@ -22,7 +22,7 @@ This version incorporates your latest constraints:
 
 Usage:
   1) Edit llm_model_dict / PYTHIA2B_DBEMA_SWEEP_MODE / RUNS / FIG_WINDOW / SMOOTH_* below
-  2) cd DIL/outputs && python aexperiment_cw.py
+  2) cd DPO/outputs && python aexperiment_cw.py
 """
 
 import os
@@ -37,12 +37,14 @@ matplotlib.use("Agg")  # IMPORTANT: no GUI
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
+from matplotlib.ticker import LogFormatter
+from matplotlib.ticker import ScalarFormatter
 import matplotlib.ticker as ticker
 import numpy as np
 
-USE_LATEX = False  # False while iterating; True for final publication figures
+USE_LATEX = False  # ← 开发时设为 False，最终出图设为 True
 if USE_LATEX:
-    # High quality: use system LaTeX
+    # 高质量：调用系统 LaTeX
     plt.rcParams.update({
         "text.usetex": True,
         "font.family": "serif",
@@ -51,33 +53,37 @@ if USE_LATEX:
         "text.latex.preamble": r"\usepackage{amsmath,amsfonts,amssymb,bm}",
     })
 else:
-    # Fast mode: Matplotlib built-in Computer Modern-like math
+    # 快速模式：使用 Matplotlib 内置 Computer Modern 风格
     plt.rcParams.update({
         "text.usetex": False,
         "font.family": "serif",
         "font.serif": ["DejaVu Serif", "Computer Modern Roman", "Times"],
-        "mathtext.fontset": "cm",  # Use Computer Modern for math text
+        "mathtext.fontset": "cm",  # 关键：使用 Computer Modern math 字体
         "text.latex.preamble": r"\usepackage{amsmath,amsfonts,amssymb,bm}",
         "axes.formatter.use_mathtext": True,
     })
 
 ICML_MODE = True
 ICML_COL_W_IN = 3.25   # single-column width
-ICML_LINE_H_IN = 2.05 
 ICML_TEXT_W_IN = 6.75  # two-column (figure*) width
 
 FIG_WIDTH = 3.6
 FIG_HEIGHT = 3.2
 
-DB_PLOT_MODE = "real"  # "real" or "algorithm_view"
-# "real": use raw dw/dl for DB (default behavior)
-# "algorithm_view": use EMA-smoothed variables for DB (algorithmic view)
+# heights
+ICML_LINE_H_IN = 2.05          # single plot height (when used alone)
+ICML_PANEL_1x4_H_IN = 1.65     # 1x4 panel height
+ICML_SCATTER_H_IN = 2.35       # for your Fig5 (2 panels)
+
+DB_PLOT_MODE = "real"  # "real" 或 "algorithm_view"
+# "real": 使用真实dw/dl计算DB（当前行为）
+# "algorithm_view": 使用EMA平滑后的变量计算DB（算法视角）
 
 def apply_icml_style():
     if not ICML_MODE:
         return
     plt.rcParams.update({
-        "font.size": 9.0,          # Larger than older defaults (~5.x)
+        "font.size": 9.0,          # 比你原来的更大（原来可能用5.x）
         "axes.labelsize": 9.0,
         "xtick.labelsize": 8.5,
         "ytick.labelsize": 8.5,
@@ -89,12 +95,12 @@ def apply_icml_style():
         "ytick.major.width": 0.7,
         "xtick.major.size": 3.0,
         "ytick.major.size": 3.0,
-        "figure.figsize": (1.8, 1.6),   # Small panel but relatively large fonts
+        "figure.figsize": (1.8, 1.6),   # ← 关键：单图尺寸小但字体大
         "savefig.pad_inches": 0.01,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
-        "axes.titlepad": 4,        # Tighter title spacing
-        "axes.labelpad": 2,        # Tighter axis label vs tick spacing
+        "axes.titlepad": 4,        # 减少标题与图间距
+        "axes.labelpad": 2,        # 减少轴标签与tick间距
     })
 
 apply_icml_style()
@@ -108,10 +114,10 @@ llm_model_dict = {    # pythia / mistral / qwen2.5-7b-instruct
     "3": "mistral-7b",
     "4": "qwen2.5-7b-instruct",
 }
-llm_model = llm_model_dict["4"]
+llm_model = llm_model_dict["2"]
 OUT_DIR = r"./figs/aexperiment_{}".format(llm_model)
 
-# ---- Pythia-2.8B: DPO + DB calibration db_ema_beta sweep plots ----
+# ---- Pythia-2.8B：DPO + DB calibration 的 db_ema_beta 消融可视化 ----
 PYTHIA2B_DBEMA_SWEEP_MODE = False
 if PYTHIA2B_DBEMA_SWEEP_MODE:
     llm_model = "pythia-2b"
@@ -142,17 +148,30 @@ if llm_model == "pythia-410m":
 elif llm_model == "pythia-2b":
     # Pythia-2.8B
     if PYTHIA2B_DBEMA_SWEEP_MODE:
+        # db_ema_beta 消融：base DPO + 四个 β（路径按你本地 output 目录名改时间戳即可）
         RUNS = [
-            {"path": r"./pythia-2b-dpo-calib-dbema0p5-20260325_023455_1_2285911/margin_chain.jsonl", "label": "dpo-calib-ema0p5"},
-            {"path": r"./pythia-2b-dpo-calib-dbema0p9-20260325_023455_2_2285911/margin_chain.jsonl", "label": "dpo-calib-ema0p9"},
-            {"path": r"./pythia-2b-dpo-calib-dbema0p95-20260325_120010_3_2285911/margin_chain.jsonl", "label": "dpo-calib-ema0p95"},
-            {"path": r"./pythia-2b-dpo-calib-dbema0p999-20260325_120220_4_2285911/margin_chain.jsonl", "label": "dpo-calib-ema0p999"},
+            # {"path": r"./pythia-2b-dpo-20260114_215720/margin_chain.jsonl", "label": "dpo"},
+            {
+                "path": r"./pythia-2b-dpo-calib-dbema0p5-20260325_023455_1_2285911/margin_chain.jsonl",
+                "label": "dpo-calib-ema0p5",
+            },
+            {
+                "path": r"./pythia-2b-dpo-calib-dbema0p9-20260325_023455_2_2285911/margin_chain.jsonl",
+                "label": "dpo-calib-ema0p9",
+            },
+            {
+                "path": r"./pythia-2b-dpo-calib-dbema0p95-20260325_120010_3_2285911/margin_chain.jsonl",
+                "label": "dpo-calib-ema0p95",
+            },
+            {
+                "path": r"./pythia-2b-dpo-calib-dbema0p999-20260325_120220_4_2285911/margin_chain.jsonl",
+                "label": "dpo-calib-ema0p999",
+            },
         ]
     else:
         RUNS = [
-            # AutoDL
             # {"path": r"./pythia-2b-dpo-20260114_215720/margin_chain.jsonl", "label": "dpo"}, # bs32
-            # {"path": r"./pythia-2b-ipo-20260116_004600/margin_chain.jsonl", "label": "ipo"}, # bs32, tau=0.1
+            # {"path": r"./pythia-2b-ipo-20260116_004600/margin_chain.jsonl", "label": "ipo"}, # bs32，tau=0.1
             # {"path": r"./pythia-2b-cpo-20260115_022527/margin_chain.jsonl", "label": "cpo"}, # bs32
             # {"path": r"./pythia-2b-tidpo-20260329_034847/margin_chain.jsonl", "label": "tidpo"},
             # {"path": r"./pythia-2b-simpo-20260120_102856/margin_chain.jsonl", "label": "simpo"},
@@ -174,24 +193,20 @@ elif llm_model == "pythia-2b":
             # {"path": r"./pythia-2b-lsif-calib-em2-20260116_201625/margin_chain.jsonl", "label": "lsif-calib"},
             # {"path": r"./pythia-2b-ukl-calib-ema-20260122_003450/margin_chain.jsonl", "label": "ukl-calib"},
 
-            # RIKEN-AIP
             # {"path": r"./pythia-2b-dpo-20260404_113903/margin_chain.jsonl", "label": "dpo"},
-            # {"path": r"./pythia-2b-ipo-20260404_113903/margin_chain.jsonl", "label": "ipo"},
-            # {"path": r"./pythia-2b-cpo-20260404_113903/margin_chain.jsonl", "label": "cpo"},
-            # {"path": r"./pythia-2b-tidpo-20260329_034847/margin_chain.jsonl", "label": "tidpo"},
-            # {"path": r"./pythia-2b-simpo-20260404_010443/margin_chain.jsonl", "label": "simpo"},
-            # {"path": r"./pythia-2b-ddro-20260404_010443/margin_chain.jsonl", "label": "ddro"},
-            # {"path": r"./pythia-2b-bce-20260404_113903/margin_chain.jsonl", "label": "bce"},
-            # {"path": r"./pythia-2b-dpo-calib-20260331_224638/margin_chain.jsonl", "label": "dpo-calib"},
-            # {"path": r"./pythia-2b-ipo-calib-20260404_113903/margin_chain.jsonl", "label": "ipo-calib"},
-            # {"path": r"./pythia-2b-cpo-calib-20260404_010443/margin_chain.jsonl", "label": "cpo-calib"},
-            # {"path": r"./pythia-2b-tidpo-calib-ema-20260329_034841/margin_chain.jsonl", "label": "tidpo-calib"},
-            # {"path": r"./pythia-2b-simpo-calib-20260404_010443/margin_chain.jsonl", "label": "simpo-calib"},
-            # {"path": r"./pythia-2b-ddro-calib-20260404_010443/margin_chain.jsonl", "label": "ddro-calib"},
-            # {"path": r"./pythia-2b-bce-calib-20260404_113903/margin_chain.jsonl", "label": "bce-calib"},
-
-            # {"path": r"./pythia-2b-ppt-calib-20260412_235747/margin_chain.jsonl", "label": "ppt-calib"},
-            {"path": r"./pythia-2b-ppt-20260413_234432/margin_chain.jsonl", "label": "ppt"},
+            {"path": r"./pythia-2b-ipo-20260404_113903/margin_chain.jsonl", "label": "ipo"},
+            {"path": r"./pythia-2b-cpo-20260404_113903/margin_chain.jsonl", "label": "cpo"},
+            {"path": r"./pythia-2b-tidpo-20260329_034847/margin_chain.jsonl", "label": "tidpo"},
+            {"path": r"./pythia-2b-simpo-20260404_010443/margin_chain.jsonl", "label": "simpo"},
+            {"path": r"./pythia-2b-ddro-20260404_010443/margin_chain.jsonl", "label": "ddro"},
+            {"path": r"./pythia-2b-bce-20260404_113903/margin_chain.jsonl", "label": "bce"},
+            {"path": r"./pythia-2b-dpo-calib-20260331_224638/margin_chain.jsonl", "label": "dpo-calib"},
+            {"path": r"./pythia-2b-ipo-calib-20260404_113903/margin_chain.jsonl", "label": "ipo-calib"},
+            {"path": r"./pythia-2b-cpo-calib-20260404_010443/margin_chain.jsonl", "label": "cpo-calib"},
+            {"path": r"./pythia-2b-tidpo-calib-ema-20260329_034841/margin_chain.jsonl", "label": "tidpo-calib"},
+            {"path": r"./pythia-2b-simpo-calib-20260404_010443/margin_chain.jsonl", "label": "simpo-calib"},
+            {"path": r"./pythia-2b-ddro-calib-20260404_010443/margin_chain.jsonl", "label": "ddro-calib"},
+            {"path": r"./pythia-2b-bce-calib-20260404_113903/margin_chain.jsonl", "label": "bce-calib"},
         ]
     
 elif llm_model == "mistral-7b":
@@ -199,20 +214,18 @@ elif llm_model == "mistral-7b":
     RUNS = [
         # {"path": r"./mistral-7b-dpo-lora-20260105_004932/margin_chain.jsonl", "label": "dpo"}, # bs32
         # {"path": r"./mistral-7b-cpo-lora-20260119_063425/margin_chain.jsonl", "label": "cpo"},
-        # {"path": r"./mistral-7b-tidpo-lora-20260329_032137/margin_chain.jsonl", "label": "tidpo"},
+        {"path": r"./mistral-7b-tidpo-lora-20260329_032137/margin_chain.jsonl", "label": "tidpo"},
         # {"path": r"./mistral-7b-simpo-lora-20260120_103452/margin_chain.jsonl", "label": "simpo"},
         # {"path": r"./mistral-7b-ddro-lora-20260118_193824/margin_chain.jsonl", "label": "ddro"},
         # {"path": r"./mistral-7b-bce-lora-20260105_115557/margin_chain.jsonl", "label": "bce"}, # bs32
         # {"path": r"./mistral-7b-lsif-lora-20260119_174530/margin_chain.jsonl", "label": "lsif"}, # bs32
         # {"path": r"./mistral-7b-dpo-lora-calib-20260120_231406/margin_chain.jsonl", "label": "dpo-calib"}, # bs32
         # {"path": r"./mistral-7b-cpo-lora-calib-20260121_103541/margin_chain.jsonl", "label": "cpo-calib"},
-        # {"path": r"./mistral-7b-tidpo-lora-calib-20260329_032116/margin_chain.jsonl", "label": "tidpo-calib"},
+        {"path": r"./mistral-7b-tidpo-lora-calib-20260329_032116/margin_chain.jsonl", "label": "tidpo-calib"},
         # {"path": r"./mistral-7b-simpo-lora-calib-20260121_220008/margin_chain.jsonl", "label": "simpo-calib"},
         # {"path": r"./mistral-7b-ddro-lora-calib-20260121_091425/margin_chain.jsonl", "label": "ddro-calib"},
         # {"path": r"./mistral-7b-bce-lora-calib-20260121_202327/margin_chain.jsonl", "label": "bce-calib"}, # bs32
         # {"path": r"./mistral-7b-lsif-lora-calib-20260120_220857/margin_chain.jsonl", "label": "lsif-calib"}, # bs32
-        # {"path": r"./mistral-7b-ppt-lora-calib-20260412_235741/margin_chain.jsonl", "label": "ppt-calib"},
-        {"path": r"./mistral-7b-ppt-lora-20260413_234432/margin_chain.jsonl", "label": "ppt"},
 
         # # {"path": r"./mistral-7b-dpo-full-lora-20260107_235806/margin_chain.jsonl", "label": "dpo-full"}, # bs32
         # # {"path": r"./mistral-7b-bce-full-lora-20260109_002210/margin_chain.jsonl", "label": "bce-full"}, # bs32
@@ -226,41 +239,47 @@ elif llm_model == "mistral-7b":
 
 elif llm_model == "qwen2.5-7b-instruct":
     RUNS = [
-        # {"path": r"./qwen2.5-7b-instruct-dpo-lora-20260327_013512/margin_chain.jsonl", "label": "dpo"},
-        # {"path": r"./qwen2.5-7b-instruct-dpo-lora-calib-20260329_041005/margin_chain.jsonl", "label": "dpo-calib"},
-        # {"path": r"./qwen2.5-7b-instruct-bce-lora-20260327_013512/margin_chain.jsonl", "label": "bce"},
-        # {"path": r"./qwen2.5-7b-instruct-bce-lora-calib-20260329_041005/margin_chain.jsonl", "label": "bce-calib"},
-        # {"path": r"./qwen2.5-7b-instruct-cpo-lora-20260331_225523/margin_chain.jsonl", "label": "cpo"},
-        # {"path": r"./qwen2.5-7b-instruct-cpo-lora-calib-20260331_225523/margin_chain.jsonl", "label": "cpo-calib"},
-        # {"path": r"./qwen2.5-7b-instruct-simpo-lora-20260331_225523/margin_chain.jsonl", "label": "simpo"},
-        # {"path": r"./qwen2.5-7b-instruct-simpo-lora-calib-20260331_225523/margin_chain.jsonl", "label": "simpo-calib"},
-        # {"path": r"./qwen2.5-7b-instruct-tidpo-lora-20260401_190750/margin_chain.jsonl", "label": "tidpo"},
-        # {"path": r"./qwen2.5-7b-instruct-tidpo-lora-calib-20260401_190750/margin_chain.jsonl", "label": "tidpo-calib"},
-        # {"path": r"./qwen2.5-7b-instruct-ddro-lora-20260401_190750/margin_chain.jsonl", "label": "ddro"},
-        # {"path": r"./qwen2.5-7b-instruct-ddro-lora-calib-20260401_190750/margin_chain.jsonl", "label": "ddro-calib"},
-        # {"path": r"./qwen2.5-7b-instruct-lsif-lora-20260401_190750/margin_chain.jsonl", "label": "lsif"},
-        # {"path": r"./qwen2.5-7b-instruct-lsif-lora-calib-20260331_225523/margin_chain.jsonl", "label": "lsif-calib"},
-        {"path": r"./qwen2.5-7b-instruct-ppt-lora-20260413_234434/margin_chain.jsonl", "label": "ppt"},
-        # {"path": r"./qwen2.5-7b-instruct-ppt-lora-calib-20260412_235731/margin_chain.jsonl", "label": "ppt-calib"},
+        {"path": r"./qwen2.5-7b-instruct-dpo-lora-20260327_013512/margin_chain.jsonl", "label": "dpo"},
+        {"path": r"./qwen2.5-7b-instruct-dpo-lora-calib-20260329_041005/margin_chain.jsonl", "label": "dpo-calib"},
+        {"path": r"./qwen2.5-7b-instruct-bce-lora-20260327_013512/margin_chain.jsonl", "label": "bce"},
+        {"path": r"./qwen2.5-7b-instruct-bce-lora-calib-20260329_041005/margin_chain.jsonl", "label": "bce-calib"},
+        {"path": r"./qwen2.5-7b-instruct-cpo-lora-20260331_225523/margin_chain.jsonl", "label": "cpo"},
+        {"path": r"./qwen2.5-7b-instruct-cpo-lora-calib-20260331_225523/margin_chain.jsonl", "label": "cpo-calib"},
+        {"path": r"./qwen2.5-7b-instruct-simpo-lora-20260331_225523/margin_chain.jsonl", "label": "simpo"},
+        {"path": r"./qwen2.5-7b-instruct-simpo-lora-calib-20260331_225523/margin_chain.jsonl", "label": "simpo-calib"},
+        {"path": r"./qwen2.5-7b-instruct-tidpo-lora-20260401_190750/margin_chain.jsonl", "label": "tidpo"},
+        {"path": r"./qwen2.5-7b-instruct-tidpo-lora-calib-20260401_190750/margin_chain.jsonl", "label": "tidpo-calib"},
+        {"path": r"./qwen2.5-7b-instruct-ddro-lora-20260401_190750/margin_chain.jsonl", "label": "ddro"},
+        {"path": r"./qwen2.5-7b-instruct-ddro-lora-calib-20260401_190750/margin_chain.jsonl", "label": "ddro-calib"},
+        {"path": r"./qwen2.5-7b-instruct-lsif-lora-20260401_190750/margin_chain.jsonl", "label": "lsif"},
+        {"path": r"./qwen2.5-7b-instruct-lsif-lora-calib-20260331_225523/margin_chain.jsonl", "label": "lsif-calib"},
+
+        # {"path": r"./qwen2.5-7b-instruct-dpo-lora-20260326_023142/margin_chain.jsonl", "label": "dpo"},
+        # {"path": r"./qwen2.5-7b-instruct-dpo-lora-calib-20260326_023142/margin_chain.jsonl", "label": "dpo-calib"},
+        # {"path": r"./qwen2.5-7b-instruct-bce-lora-20260326_023142/margin_chain.jsonl", "label": "bce"},
+        # {"path": r"./qwen2.5-7b-instruct-bce-lora-calib-20260326_023142/margin_chain.jsonl", "label": "bce-calib"},
     ]
 
 # Base colors (Paul Tol optimized)
 BASE = {
-    "bce":  "#4477AA",  # deep blue
-    "dpo":  "#EE6677",  # coral red
-    "ipo":  "#228833",  # forest green
-    "cpo":  "#CCBB44",  # gold
-    "simpo": "#33BBEE",  # bright blue (alts: #CC6677 brown-red, #3399FF blue)
-    "lsif": "#D55E00",  # orange-red
-    "ukl":  "#666666",  # dark gray
-    "ddro": "#8c564b",  # brown (distinct from LSIF)
-    "tidpo": "#228833",  # green (same slot as IPO; distinguish by label)
-    "ppt": "#882255",  # purple-red (vs TIDPO green, DPO red)
+    "bce":  "#4477AA",  # 深蓝
+    "dpo":  "#EE6677",  # 珊瑚红
+    "ipo":  "#228833",  # 森林绿
+    "cpo":  "#CCBB44",  # 金黄
+    "simpo": "#33BBEE",  # 亮蓝   #CC6677 红褐    #3399FF 亮蓝
+    "lsif": "#D55E00",  # 橙红
+    "ukl":  "#666666",  # 深灰
+    "ddro": "#8c564b",  # brown（与 LSIF 区分）
+    "tidpo": "#228833",  # 黑色
 }
 
 def lighten(hex_col, f=0.25):
     r, g, b = mcolors.hex2color(hex_col)
     return mcolors.to_hex([min(1, c + f*(1-c)) for c in (r,g,b)])
+
+def darken(hex_col, f=0.25):
+    r, g, b = mcolors.hex2color(hex_col)
+    return mcolors.to_hex([max(0, c - f*c) for c in (r,g,b)])
     
 METHOD_REGISTRY = {
     # Original
@@ -270,7 +289,6 @@ METHOD_REGISTRY = {
     "cpo":      {"display": "CPO",       "color": BASE["cpo"]},
     "simpo":     {"display": "SimPO",    "color": BASE["simpo"]},
     "tidpo":     {"display": "TIDPO",    "color": BASE["tidpo"]},
-    "ppt":       {"display": "PPT-DPO",  "color": BASE["ppt"]},
     "lsif":     {"display": "DIL-LSIF",      "color": BASE["lsif"]},
     "ukl":      {"display": "DIL-UKL",       "color": BASE["ukl"]},
     "ddro":     {"display": "DDRO",      "color": BASE["ddro"]},
@@ -281,7 +299,6 @@ METHOD_REGISTRY = {
     "cpo-calib": {"display": "CPO w/ RC", "color": lighten(BASE["cpo"])},
     "simpo-calib":{"display": "Simpo w/ RC","color": lighten(BASE["simpo"])},
     "tidpo-calib":{"display": "TIDPO w/ RC","color": lighten(BASE["tidpo"])},
-    "ppt-calib":  {"display": "PPT-DPO w/ RC", "color": lighten(BASE["ppt"])},
     "lsif-calib":{"display": "DIL-LSIF w/ RC","color": lighten(BASE["lsif"])},
     "ukl-calib": {"display": "DIL-UKL w/ RC", "color": lighten(BASE["ukl"])},
     "ddro-calib":{"display": "DDRO w/ RC","color": lighten(BASE["ddro"])},
@@ -293,7 +310,7 @@ DPI = 300
 # ---- window used for Fig2/3/4 and Fig5 scatter ----
 FIG_WINDOW = 50 # 50
 
-# Global subsampling (tune as needed)
+# 全局下采样策略（可根据需要调整）
 SUBSAMPLE_EVERY = {
     "Fig1": 10,
     "Fig2": 10,
@@ -403,31 +420,31 @@ def load_jsonl_as_df(jsonl_path: str) -> pd.DataFrame:
     else:
         df["step"] = range(1, len(df) + 1)
         
-    # Calibrated runs: adjust dw/dl per mode
+    # 如果是矫正模型
     if "calib" in jsonl_path:
-        # Interpretation controlled by DB_PLOT_MODE
+        # 根据DB_PLOT_MODE决定如何处理
         if DB_PLOT_MODE == "real":
-            # Default: true DB scaling
+            # 当前行为：使用真实DB
             alpha = 1.
             df["dw"] = df["dw"] * alpha
             df["dl"] = df["dl"] / alpha
         elif DB_PLOT_MODE == "algorithm_view":
-            # Algorithm view: EMA-smoothed dw/dl
-            # Prefer EMA columns when present
+            # 算法视角：使用EMA平滑后的变量
+            # 检查是否有EMA平滑的变量
             if "db/dw_ema" in df.columns and "db/dl_ema" in df.columns:
-                # EMA-smoothed dw/dl
+                # 使用EMA平滑后的dw/dl
                 df["dw"] = df["db/dw_ema"]
                 df["dl"] = df["db/dl_ema"]
             else:
-                # Missing EMA columns: fall back to raw DB
-                print(f"[WARN] {jsonl_path}: missing EMA-smoothed columns; using raw DB")
+                # 如果没有EMA变量，回退到真实DB
+                print(f"[WARN] {jsonl_path}: 缺少EMA平滑变量，使用真实DB")
                 alpha = 1.
                 df["dw"] = df["dw"] * alpha
                 df["dl"] = df["dl"] / alpha
             
-            # EMA band edges (consumed later in add_ratio_band)
+            # 如果存在EMA平滑的边界，也使用它们
             if "db/lower" in df.columns and "db/upper" in df.columns:
-                # Placeholder for downstream band logic
+                # 这些将在后续的add_ratio_band函数中被使用
                 pass
 
     # Coerce numeric columns where possible (keep loss_type as-is)
@@ -581,7 +598,7 @@ def add_windowed_stats(df: pd.DataFrame, window: int) -> pd.DataFrame:
 
     drift_mag = mu.abs()
     denom = np.sqrt(var)
-    snr = drift_mag / denom * np.sqrt(window)  # scale by sqrt(window)
+    snr = drift_mag / denom * np.sqrt(window) # 乘以一个根号windowsize
     snr[(denom.isna()) | (denom < 1e-8)] = np.nan  # avoid blow-ups
 
     df[f"drift_mag_w{window}"] = drift_mag
@@ -595,7 +612,7 @@ def add_windowed_stats(df: pd.DataFrame, window: int) -> pd.DataFrame:
     return df
 
 def get_hac_lag(window: int) -> int:
-    # Empirically stable with H <= w-1; keep small on short series
+    # 经验上足够稳：H <= w-1；小数据不宜太大
     return max(1, min(10, window // 5, window - 1))
 
 def rolling_hac_tsnr(delta: pd.Series, window: int) -> pd.Series:
@@ -729,7 +746,7 @@ def plot_compare_lines(
         if "-calib" in run_label:
             linestyle = "--"
         elif "-reg" in run_label:
-            linestyle = "-."  # dash-dot (optional style)
+            linestyle = "-."  # 点划线，可选
         else:
             linestyle = "-"
 
@@ -852,7 +869,14 @@ def plot_zw_zl_per_method(
     model_name: str,
     subsample_every: int = 10,
 ) -> None:
-    """Plot zw/zl trajectories for a base method and optional calib run."""
+    """
+    Plot zw/zl for a base method and its calibrated variant (if exists).
+    Saves to: out_dir/zw_zl_sv_step_{base_label}_{model_name}.pdf
+    Curves:
+        - z_w, z_l         (original)
+        - z_w^rc, z_l^rc   (calibrated, if available)
+    """
+    # Collect relevant runs
     original_df = None
     calib_df = None
 
@@ -863,19 +887,36 @@ def plot_zw_zl_per_method(
             calib_df = df
 
     if original_df is None:
-        return
+        return  # Skip if no original
 
+    # Prepare data
+    def prepare_data(df, is_calib=False):
+        if df is None:
+            return None, None
+        df_plot = df.iloc[::subsample_every].reset_index(drop=True)
+        xs = df_plot["step"].values
+        zw = pd.to_numeric(df_plot.get("zw", pd.Series([np.nan]*len(df_plot))), errors="coerce").values
+        zl = pd.to_numeric(df_plot.get("zl", pd.Series([np.nan]*len(df_plot))), errors="coerce").values
+        return xs, (zw, zl)
+
+    orig_xs, (orig_zw, orig_zl) = prepare_data(original_df)
+    calib_xs, (calib_zw, calib_zl) = prepare_data(calib_df, is_calib=True)
+
+    # Plot
     fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-    _plot_reward_pair(
-        ax, original_df, "#1f77b4", "#7fbfff",
-        r"$z_{w,t}$", r"$z_{l,t}$",
-        linestyle="-", subsample_every=subsample_every, chosen_width=1.2, rejected_width=1.2
-    )
-    _plot_reward_pair(
-        ax, calib_df, "#d62728", "#e99696",
-        r"$z_{w,t}^{\text{rc}}$", r"$z_{l,t}^{\text{rc}}$",
-        linestyle="--", subsample_every=subsample_every, chosen_width=1.2, rejected_width=1.2
-    )
+
+    # Original: blue
+    ax.plot(orig_xs, orig_zw, color="#1f77b4", linestyle="-", linewidth=1.2, label=r"$z_{w,t}$")
+    ax.plot(orig_xs, orig_zl, color="#7fbfff", linestyle="-", linewidth=1.2, label=r"$z_{l,t}$")
+    # ax.scatter(orig_xs, orig_zw, color="#1f77b4", s=12, zorder=5, label=r"$z_{w,t}$")
+    # ax.scatter(orig_xs, orig_zl, color="#7fbfff", s=12, zorder=5, label=r"$z_{l,t}$")
+
+    # Calibrated: red (if exists)
+    if calib_df is not None:
+        ax.plot(calib_xs, calib_zw, color="#d62728", linestyle="--", linewidth=1.2, label=r"$z_{w,t}^{\text{rc}}$")
+        ax.plot(calib_xs, calib_zl, color="#e99696", linestyle="--", linewidth=1.2, label=r"$z_{l,t}^{\text{rc}}$")
+        # ax.scatter(calib_xs, calib_zw, color="#d62728", s=12, zorder=5, label=r"$z_{w,t}^{\text{rc}}$")
+        # ax.scatter(calib_xs, calib_zl, color="#e99696", s=12, zorder=5, label=r"$z_{l,t}^{\text{rc}}$")
 
     ax.set_xlabel("Step")
     ax.set_ylabel(r"Chosen / rejected rewards $z_{w,t}, z_{l,t}$")
@@ -920,7 +961,7 @@ def integrate_margin_ode(df: pd.DataFrame) -> pd.Series:
     for t in range(start + 1, len(rhs)):
         if not (np.isfinite(rhs[t-1]) and np.isfinite(lr[t-1]) and lr[t-1] > 0):
             continue
-        dt = float(lr[t-1])  # learning rate as integration step
+        dt = float(lr[t-1])  # ← 关键：用学习率作为时间步长
         m_ode[t] = m_ode[t-1] + rhs[t-1] * dt
 
     return pd.Series(m_ode, index=df.index)
@@ -938,7 +979,13 @@ def plot_margin_with_ode(
     Empirical curve: light solid line.
     ODE curve: dark dashed line.
     """
+    # TARGET_METHODS = {"bce", "dpo"}
+    # run_dfs = [(lbl, df) for lbl, df in run_dfs if lbl in TARGET_METHODS]
+
     fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+    # base_colors = plt.rcParams["axes.prop_cycle"].by_key().get("color", ["C0", "C1", "C2", "C3"])
+    # run_to_color = {lbl: base_colors[i % len(base_colors)] for i, (lbl, _) in enumerate(run_dfs)}
+
     for run_label, df in run_dfs:
         if "m" not in df.columns or "step" not in df.columns:
             continue
@@ -950,7 +997,7 @@ def plot_margin_with_ode(
         if "-calib" in run_label:
             linestyle = "--"
         elif "-reg" in run_label:
-            linestyle = "-." 
+            linestyle = "-."  # 点划线，可选
         else:
             linestyle = "-"
 
@@ -994,22 +1041,84 @@ def adjust_log_scale(ax, num_ticks=4):
     ax.yaxis.set_major_locator(ticker.LogLocator(base=10, numticks=8))
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(custom_formatter))
     ax.yaxis.set_minor_formatter(ticker.NullFormatter()) 
+
+    # Return the adjusted ax
     return ax
 
-def _sorted_subsample(df: pd.DataFrame, x: str = "step", subsample_every: int = 1) -> pd.DataFrame:
-    if df is None or df.empty or x not in df.columns:
-        return pd.DataFrame()
-    g = df.sort_values(x).reset_index(drop=True)
-    if subsample_every > 1:
-        g = g.iloc[::subsample_every].reset_index(drop=True)
-    return g
+# 辅助函数
+# def plot_db(ax, df, title, color, is_calib=False, subsample_every=1):
+#     """绘制Disentanglement Band"""
+#     if df.empty or "step" not in df.columns:
+#         return
+    
+#     g = df.sort_values("step")
+#     xs_fill = g["step"].values
+    
+#     if is_calib:
+#         # 校准后的DB
+#         alpha = pd.to_numeric(g["db/alpha"], errors="coerce")
+#         dw_corrected = pd.to_numeric(g["dw"], errors="coerce") * alpha
+#         dl_corrected = pd.to_numeric(g["dl"], errors="coerce") / alpha
+#         r = dw_corrected / dl_corrected
+#         lo = np.exp(pd.to_numeric(g["db/lower"], errors="coerce"))
+#         up = np.exp(pd.to_numeric(g["db/upper"], errors="coerce"))
+#     else:
+#         # 校准前的DB
+#         r = pd.to_numeric(g["dw_over_dl"], errors="coerce")
+#         lo = np.exp(pd.to_numeric(g["band_lower"], errors="coerce"))
+#         up = np.exp(pd.to_numeric(g["band_upper"], errors="coerce"))
+    
+#     # 填充带区域
+#     ax.fill_between(xs_fill, lo.values, up.values, color=color, alpha=0.15, label="Disentanglement band")
+    
+#     # 子采样用于绘制曲线
+#     if subsample_every > 1:
+#         g = g.iloc[::subsample_every].reset_index(drop=True)
+    
+#     xs = g["step"].values
+    
+#     if is_calib:
+#         # 重新计算子采样后的数据
+#         alpha = pd.to_numeric(g["db/alpha"], errors="coerce")
+#         dw_corrected = pd.to_numeric(g["dw"], errors="coerce") * alpha
+#         dl_corrected = pd.to_numeric(g["dl"], errors="coerce") / alpha
+#         r = dw_corrected / dl_corrected
+#         lo = np.exp(pd.to_numeric(g["db/lower"], errors="coerce"))
+#         up = np.exp(pd.to_numeric(g["db/upper"], errors="coerce"))
+#     else:
+#         r = pd.to_numeric(g["dw_over_dl"], errors="coerce")
+#         lo = np.exp(pd.to_numeric(g["band_lower"], errors="coerce"))
+#         up = np.exp(pd.to_numeric(g["band_upper"], errors="coerce"))
+    
+#     # 绘制激励比率
+#     label = r"$\log r_t$ w/ RC" if is_calib else r"$\log r_t$ w/o RC"
+#     ax.plot(xs, r.values, color=color, linewidth=1.2, label=label)
+    
+#     # 绘制带中心
+#     band_center = np.sqrt(lo.values * up.values)
+#     band_center_smooth = pd.Series(band_center).ewm(span=FIG_WINDOW, adjust=False).mean()
+#     center_label = r"Band center $\log r_t^{\star}$"
+#     ax.plot(xs, band_center_smooth.values, color='tab:orange', 
+#             linestyle='--', linewidth=1.2, label=center_label)
+    
+#     # 设置坐标轴
+#     ax.set_title(title, fontsize=10)
+#     ax.set_xlabel("Step")
+#     ax.set_ylabel("Incentive log-ratio")
+#     ax.set_yscale("log")
+#     ax = adjust_log_scale(ax)
+#     ax.grid(True, linewidth=0.3, linestyle=":", alpha=0.6)
+#     ax.legend(fontsize=8)
 
-def _compute_db_components(df: pd.DataFrame, is_calib: bool) -> Optional[Dict[str, np.ndarray]]:
-    g_full = _sorted_subsample(df, x="step", subsample_every=1)
-    if g_full.empty:
-        return None
+def plot_db(ax, df, title, color, is_calib=False, subsample_every=1):
+    """绘制Disentanglement Band：平滑在完整数据上，绘图时子采样"""
+    if df.empty or "step" not in df.columns:
+        return
 
+    # === 1. 使用完整数据计算 ratio 和 band 边界 ===
+    g_full = df.sort_values("step").reset_index(drop=True)
     xs_full = g_full["step"].values
+
     if is_calib:
         alpha_full = pd.to_numeric(g_full["db/alpha"], errors="coerce")
         dw_corr_full = pd.to_numeric(g_full["dw"], errors="coerce") * alpha_full
@@ -1022,87 +1131,36 @@ def _compute_db_components(df: pd.DataFrame, is_calib: bool) -> Optional[Dict[st
         lo_full_raw = pd.to_numeric(g_full["band_lower"], errors="coerce")
         up_full_raw = pd.to_numeric(g_full["band_upper"], errors="coerce")
 
+    # 指数还原（log → linear）
     lo_full = np.exp(lo_full_raw)
     up_full = np.exp(up_full_raw)
     band_center_full = np.sqrt(lo_full * up_full)
+
+    # === 2. 在完整数据上做 EWM 平滑 ===
     r_smooth_full = pd.Series(r_full).ewm(span=FIG_WINDOW, adjust=False).mean()
     band_center_smooth_full = pd.Series(band_center_full).ewm(span=FIG_WINDOW, adjust=False).mean()
-    return {
-        "xs_full": xs_full,
-        "lo_full": lo_full.values,
-        "up_full": up_full.values,
-        "r_smooth_full": r_smooth_full.values,
-        "band_center_smooth_full": band_center_smooth_full.values,
-    }
 
-def _plot_reward_pair(
-    ax,
-    df: Optional[pd.DataFrame],
-    chosen_color: Any,
-    rejected_color: Any,
-    chosen_label: str,
-    rejected_label: str,
-    linestyle: str,
-    subsample_every: int,
-    chosen_width: float = 1.2,
-    rejected_width: float = 1.0,
-) -> None:
-    g = _sorted_subsample(df, x="step", subsample_every=subsample_every)
-    if g.empty:
-        return
-    xs = g["step"].values
-
-    if "zw" in g.columns:
-        zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"), force_no_smooth=False)
-        ax.plot(xs, zw_sm.values, color=chosen_color, linestyle=linestyle, linewidth=chosen_width, label=chosen_label)
-    if "zl" in g.columns:
-        zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"), force_no_smooth=False)
-        ax.plot(xs, zl_sm.values, color=rejected_color, linestyle=linestyle, linewidth=rejected_width, label=rejected_label)
-
-def _plot_margin_line(
-    ax,
-    df: Optional[pd.DataFrame],
-    color: Any,
-    label: str,
-    linestyle: str,
-    subsample_every: int,
-    linewidth: float = 1.5,
-) -> None:
-    g = _sorted_subsample(df, x="step", subsample_every=subsample_every)
-    if g.empty or "zw" not in g.columns or "zl" not in g.columns:
-        return
-    xs = g["step"].values
-    margin = pd.to_numeric(g["zw"], errors="coerce") - pd.to_numeric(g["zl"], errors="coerce")
-    margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
-    ax.plot(xs, margin_sm.values, color=color, linestyle=linestyle, linewidth=linewidth, label=label)
-
-def plot_db(ax, df, title, color, is_calib=False, subsample_every=1):
-    """Plot disentanglement band with smoothed ratio curves."""
-    comp = _compute_db_components(df, is_calib=is_calib)
-    if comp is None:
-        return
-
-    xs_full = comp["xs_full"]
-    lo_full = comp["lo_full"]
-    up_full = comp["up_full"]
-    r_smooth_full = comp["r_smooth_full"]
-    band_center_smooth_full = comp["band_center_smooth_full"]
-
+    # === 3. 子采样用于绘图（从平滑后序列中取点）===
     if subsample_every > 1:
         idx_plot = np.arange(0, len(xs_full), subsample_every)
         xs_plot = xs_full[idx_plot]
-        r_smooth_plot = r_smooth_full[idx_plot]
-        band_center_smooth_plot = band_center_smooth_full[idx_plot]
+        r_smooth_plot = r_smooth_full.iloc[idx_plot].values
+        band_center_smooth_plot = band_center_smooth_full.iloc[idx_plot].values
     else:
         xs_plot = xs_full
-        r_smooth_plot = r_smooth_full
-        band_center_smooth_plot = band_center_smooth_full
+        r_smooth_plot = r_smooth_full.values
+        band_center_smooth_plot = band_center_smooth_full.values
 
+    # === 4. 绘制 band 区域（使用原始完整数据，非平滑）===
     ax.fill_between(xs_full, lo_full, up_full, color=color, alpha=0.35, label="Disentanglement band")
+
+    # === 5. 绘制平滑曲线（已子采样）===
     label = r"$\log r_t$ w/ RC" if is_calib else r"$\log r_t$ w/o RC"
     ax.plot(xs_plot, r_smooth_plot, color=color, linewidth=1.2, label=label)
     ax.plot(xs_plot, band_center_smooth_plot, color='tab:orange',
             linestyle='--', linewidth=1.2, label=r"Band center $\log r_t^{\star}$")
+
+    # === 6. 坐标轴设置 ===
     ax.set_title(title, fontsize=10)
     ax.set_xlabel("Step")
     ax.set_ylabel("Incentive log-ratio")
@@ -1112,16 +1170,47 @@ def plot_db(ax, df, title, color, is_calib=False, subsample_every=1):
     ax.legend(fontsize=8)
     
 def plot_zw_zl_trajectories(ax, base_df, calib_df, subsample_every=1):
-    _plot_reward_pair(
-        ax, base_df, "#1f77b4", "#7fbfff",
-        r"Chosen (base w/o RC)", r"Rejected (base w/o RC)",
-        linestyle="-", subsample_every=subsample_every, chosen_width=1.2, rejected_width=1.2
-    )
-    _plot_reward_pair(
-        ax, calib_df, "#d62728", "#e99696",
-        r"Chosen (base w/ RC)", r"Rejected (base w/ RC)",
-        linestyle="--", subsample_every=subsample_every, chosen_width=1.2, rejected_width=1.2
-    )
+    """绘制zw/zl轨迹"""
+    # 绘制Base objective
+    if base_df is not None and not base_df.empty and "step" in base_df.columns:
+        g = base_df.sort_values("step")
+        if subsample_every > 1:
+            g = g.iloc[::subsample_every].reset_index(drop=True)
+        
+        xs = g["step"].values
+        
+        if "zw" in g.columns:
+            zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"), 
+                                 force_no_smooth=False)
+            ax.plot(xs, zw_sm.values, color="#1f77b4", linestyle="-",
+                   linewidth=1.2, label=r"Chosen (base w/o RC)")
+        
+        if "zl" in g.columns:
+            zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"),
+                                 force_no_smooth=False)
+            ax.plot(xs, zl_sm.values, color="#7fbfff", linestyle="-",
+                   linewidth=1.2, label=r"Rejected (base w/o RC)")
+    
+    # 绘制Calibrated
+    if calib_df is not None and not calib_df.empty and "step" in calib_df.columns:
+        g = calib_df.sort_values("step")
+        if subsample_every > 1:
+            g = g.iloc[::subsample_every].reset_index(drop=True)
+        
+        xs = g["step"].values
+        
+        if "zw" in g.columns:
+            zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"),
+                                 force_no_smooth=False)
+            ax.plot(xs, zw_sm.values, color="#d62728", linestyle="--",
+                   linewidth=1.2, label=r"Chosen (base w/ RC)")
+        
+        if "zl" in g.columns:
+            zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"),
+                                 force_no_smooth=False)
+            ax.plot(xs, zl_sm.values, color="#e99696", linestyle="--",
+                   linewidth=1.2, label=r"Rejected (base w/ RC)")
+    
     ax.set_title(r"Rewards Over Steps", fontsize=10)
     ax.set_xlabel("Step")
     ax.set_ylabel("Chosen/rejected rewards")
@@ -1129,8 +1218,39 @@ def plot_zw_zl_trajectories(ax, base_df, calib_df, subsample_every=1):
     ax.legend(fontsize=8, loc="best")
     
 def plot_margin(ax, base_df, calib_df, subsample_every=1):
-    _plot_margin_line(ax, base_df, "#1f77b4", "Base w/o RC", "-", subsample_every=subsample_every, linewidth=1.5)
-    _plot_margin_line(ax, calib_df, "#d62728", "Base w/ RC", "--", subsample_every=subsample_every, linewidth=1.5)
+    """绘制margin变化"""
+    # 计算并绘制Base margin
+    if base_df is not None and not base_df.empty:
+        g = base_df.sort_values("step")
+        if subsample_every > 1:
+            g = g.iloc[::subsample_every].reset_index(drop=True)
+        
+        xs = g["step"].values
+        
+        if "zw" in g.columns and "zl" in g.columns:
+            zw = pd.to_numeric(g["zw"], errors="coerce")
+            zl = pd.to_numeric(g["zl"], errors="coerce")
+            margin = zw - zl
+            margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
+            ax.plot(xs, margin_sm.values, color="#1f77b4", linestyle="-",
+                   linewidth=1.5, label="Base w/o RC")
+    
+    # 计算并绘制Calibrated margin
+    if calib_df is not None and not calib_df.empty:
+        g = calib_df.sort_values("step")
+        if subsample_every > 1:
+            g = g.iloc[::subsample_every].reset_index(drop=True)
+        
+        xs = g["step"].values
+        
+        if "zw" in g.columns and "zl" in g.columns:
+            zw = pd.to_numeric(g["zw"], errors="coerce")
+            zl = pd.to_numeric(g["zl"], errors="coerce")
+            margin = zw - zl
+            margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
+            ax.plot(xs, margin_sm.values, color="#d62728", linestyle="--",
+                   linewidth=1.5, label="Base w/ RC")
+    
     ax.set_title(r"Margin Over Steps", fontsize=10)
     ax.set_xlabel("Step")
     ax.set_ylabel("Margin")
@@ -1138,17 +1258,11 @@ def plot_margin(ax, base_df, calib_df, subsample_every=1):
     ax.legend(fontsize=8, loc="best")
 
 
-def _build_run_map(run_dfs: List[Tuple[str, pd.DataFrame]]) -> Dict[str, pd.DataFrame]:
-    return {lbl: df for lbl, df in run_dfs}
-
-
-def _finalize_and_save_comprehensive(fig, out_dir: str, out_name: str) -> None:
-    ensure_dir(out_dir)
-    fig.subplots_adjust(left=0.04, right=0.99, bottom=0.15, top=0.88, wspace=0.2, hspace=0.0)
-    out_path = os.path.join(out_dir, out_name)
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0.0)
-    plt.close(fig)
-    print(f"[OK] Saved: {out_path}")
+def _lookup_run_df(run_dfs: List[Tuple[str, pd.DataFrame]], label: str) -> Optional[pd.DataFrame]:
+    for lbl, df in run_dfs:
+        if lbl == label:
+            return df
+    return None
 
 
 def plot_db_calib_sweep_overlay(
@@ -1156,24 +1270,28 @@ def plot_db_calib_sweep_overlay(
     calib_entries: List[Tuple[str, pd.DataFrame]],
     subsample_every: int = 1,
 ) -> None:
-    """Plot smoothed incentive-ratio curves for multiple RC runs."""
+    """多条 RC 配置：只画平滑后的 incentive ratio 曲线（不画 band 填充，避免重叠）。"""
     if not calib_entries:
         ax.text(0.5, 0.5, "No calibration runs", ha="center", va="center", transform=ax.transAxes)
         ax.set_title("DB w/ RC (db_ema β sweep)", fontsize=10)
         return
     for idx, (leg, df) in enumerate(calib_entries):
-        comp = _compute_db_components(df, is_calib=True)
-        if comp is None:
+        if df is None or df.empty or "step" not in df.columns:
             continue
-        xs_full = comp["xs_full"]
-        r_smooth_full = comp["r_smooth_full"]
+        g_full = df.sort_values("step").reset_index(drop=True)
+        xs_full = g_full["step"].values
+        alpha_full = pd.to_numeric(g_full["db/alpha"], errors="coerce")
+        dw_corr_full = pd.to_numeric(g_full["dw"], errors="coerce") * alpha_full
+        dl_corr_full = pd.to_numeric(g_full["dl"], errors="coerce") / alpha_full
+        r_full = dw_corr_full / dl_corr_full
+        r_smooth_full = pd.Series(r_full).ewm(span=FIG_WINDOW, adjust=False).mean()
         if subsample_every > 1:
             idx_plot = np.arange(0, len(xs_full), subsample_every)
             xs_plot = xs_full[idx_plot]
-            r_plot = r_smooth_full[idx_plot]
+            r_plot = r_smooth_full.iloc[idx_plot].values
         else:
             xs_plot = xs_full
-            r_plot = r_smooth_full
+            r_plot = r_smooth_full.values
         c = plt.cm.tab10(idx % 10)
         ax.plot(xs_plot, r_plot, color=c, linewidth=1.2, label=leg)
     ax.set_title("DB w/ RC (db_ema β sweep)", fontsize=10)
@@ -1191,18 +1309,31 @@ def plot_zw_zl_trajectories_multicalib(
     calib_entries: List[Tuple[str, pd.DataFrame]],
     subsample_every: int = 1,
 ) -> None:
-    _plot_reward_pair(
-        ax, base_df, "#1f77b4", "#7fbfff",
-        r"Chosen (w/o RC)", r"Rejected (w/o RC)",
-        linestyle="-", subsample_every=subsample_every, chosen_width=1.2, rejected_width=1.2
-    )
+    if base_df is not None and not base_df.empty and "step" in base_df.columns:
+        g = base_df.sort_values("step")
+        if subsample_every > 1:
+            g = g.iloc[::subsample_every].reset_index(drop=True)
+        xs = g["step"].values
+        if "zw" in g.columns:
+            zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"), force_no_smooth=False)
+            ax.plot(xs, zw_sm.values, color="#1f77b4", linestyle="-", linewidth=1.2, label=r"Chosen (w/o RC)")
+        if "zl" in g.columns:
+            zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"), force_no_smooth=False)
+            ax.plot(xs, zl_sm.values, color="#7fbfff", linestyle="-", linewidth=1.2, label=r"Rejected (w/o RC)")
     for idx, (leg, df) in enumerate(calib_entries):
+        if df is None or df.empty or "step" not in df.columns:
+            continue
+        g = df.sort_values("step")
+        if subsample_every > 1:
+            g = g.iloc[::subsample_every].reset_index(drop=True)
+        xs = g["step"].values
         c = plt.cm.tab10(idx % 10)
-        _plot_reward_pair(
-            ax, df, c, c,
-            f"Ch. {leg}", f"Rej. {leg}",
-            linestyle="--", subsample_every=subsample_every, chosen_width=1.1, rejected_width=1.0
-        )
+        if "zw" in g.columns:
+            zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"), force_no_smooth=False)
+            ax.plot(xs, zw_sm.values, color=c, linestyle="--", linewidth=1.1, label=f"Ch. {leg}")
+        if "zl" in g.columns:
+            zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"), force_no_smooth=False)
+            ax.plot(xs, zl_sm.values, color=c, linestyle=":", linewidth=1.0, label=f"Rej. {leg}")
     ax.set_title(r"Rewards Over Steps", fontsize=10)
     ax.set_xlabel("Step")
     ax.set_ylabel("Chosen/rejected rewards")
@@ -1216,16 +1347,32 @@ def plot_margin_multicalib(
     calib_entries: List[Tuple[str, pd.DataFrame]],
     subsample_every: int = 1,
 ) -> None:
-    _plot_margin_line(
-        ax, base_df, "#1f77b4", r"Margin w/o RC", "-",
-        subsample_every=subsample_every, linewidth=1.5
-    )
+    if base_df is not None and not base_df.empty:
+        g = base_df.sort_values("step")
+        if subsample_every > 1:
+            g = g.iloc[::subsample_every].reset_index(drop=True)
+        xs = g["step"].values
+        if "zw" in g.columns and "zl" in g.columns:
+            zw = pd.to_numeric(g["zw"], errors="coerce")
+            zl = pd.to_numeric(g["zl"], errors="coerce")
+            margin = zw - zl
+            margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
+            ax.plot(xs, margin_sm.values, color="#1f77b4", linestyle="-", linewidth=1.5, label=r"Margin w/o RC")
     for idx, (leg, df) in enumerate(calib_entries):
+        if df is None or df.empty:
+            continue
+        g = df.sort_values("step")
+        if subsample_every > 1:
+            g = g.iloc[::subsample_every].reset_index(drop=True)
+        xs = g["step"].values
+        if "zw" not in g.columns or "zl" not in g.columns:
+            continue
+        zw = pd.to_numeric(g["zw"], errors="coerce")
+        zl = pd.to_numeric(g["zl"], errors="coerce")
+        margin = zw - zl
+        margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
         c = plt.cm.tab10(idx % 10)
-        _plot_margin_line(
-            ax, df, c, f"M {leg}", "--",
-            subsample_every=subsample_every, linewidth=1.2
-        )
+        ax.plot(xs, margin_sm.values, color=c, linestyle="--", linewidth=1.2, label=f"M {leg}")
     ax.set_title(r"Margin Over Steps", fontsize=10)
     ax.set_xlabel("Step")
     ax.set_ylabel("Margin")
@@ -1239,18 +1386,19 @@ def plot_objective_comprehensive_dpo_dbema_sweep(
     model_name: str,
     subsample_every: int = 5,
 ) -> None:
-    """Plot 1x4 comprehensive figure for DPO db_ema sweep."""
+    """
+    与 plot_objective_comprehensive 相同 1x4 版面：DPO base + 多种 db_ema_beta 的 RC 曲线对比。
+    """
     sweep_meta = [
         ("dpo-calib-ema0p5", r"$\beta=0.5$"),
         ("dpo-calib-ema0p9", r"$\beta=0.9$"),
         ("dpo-calib-ema0p95", r"$\beta=0.95$"),
         ("dpo-calib-ema0p999", r"$\beta=0.999$"),
     ]
-    run_map = _build_run_map(run_dfs)
-    base_data = run_map.get("dpo")
+    base_data = _lookup_run_df(run_dfs, "dpo")
     calib_entries: List[Tuple[str, pd.DataFrame]] = []
     for lbl, disp in sweep_meta:
-        dfc = run_map.get(lbl)
+        dfc = _lookup_run_df(run_dfs, lbl)
         if dfc is not None and not dfc.empty:
             calib_entries.append((disp, dfc))
         else:
@@ -1260,6 +1408,7 @@ def plot_objective_comprehensive_dpo_dbema_sweep(
         print("[WARN] db_ema sweep: missing base `dpo`; skip comprehensive_dpo_dbema_sweep")
         return
 
+    ensure_dir(out_dir)
     fig, axes = plt.subplots(1, 4, figsize=(ICML_COL_W_IN * 4, ICML_LINE_H_IN * 1.2), constrained_layout=False)
 
     plot_db(axes[0], base_data, "DB w/o Reward Calibration", "tab:blue", is_calib=False, subsample_every=subsample_every)
@@ -1267,11 +1416,18 @@ def plot_objective_comprehensive_dpo_dbema_sweep(
     plot_zw_zl_trajectories_multicalib(axes[2], base_data, calib_entries, subsample_every=subsample_every)
     plot_margin_multicalib(axes[3], base_data, calib_entries, subsample_every=subsample_every)
 
-    _finalize_and_save_comprehensive(
-        fig,
-        out_dir=out_dir,
-        out_name=f"comprehensive_dpo_dbema_sweep_{model_name}.{SAVE_FORMAT}",
+    fig.subplots_adjust(
+        left=0.04,
+        right=0.99,
+        bottom=0.15,
+        top=0.88,
+        wspace=0.2,
+        hspace=0.0,
     )
+    out_path = os.path.join(out_dir, f"comprehensive_dpo_dbema_sweep_{model_name}.{SAVE_FORMAT}")
+    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0.0)
+    plt.close(fig)
+    print(f"[OK] Saved db_ema sweep comprehensive: {out_path}")
 
 
 def plot_objective_comprehensive(
@@ -1281,32 +1437,67 @@ def plot_objective_comprehensive(
     model_name: str,
     subsample_every: int = 10,
 ) -> None:
-    """Plot 1x4 comprehensive figure for one objective."""
-    run_map = _build_run_map(run_dfs)
-    base_data = run_map.get(base_method)
-    calib_data = run_map.get(f"{base_method}-calib")
-
+    """
+    为每个objective绘制综合图：1x4布局
+    使用三个辅助函数实现
+    """
+    # 获取数据
+    base_data = None
+    calib_data = None
+    
+    for lbl, df in run_dfs:
+        if lbl == base_method:
+            base_data = df
+        elif lbl == f"{base_method}-calib":
+            calib_data = df
+    
     if base_data is None or base_data.empty:
         print(f"[WARN] No base data for {base_method}")
         return
-
+    
+    # 创建1x4的图形
     fig, axes = plt.subplots(1, 4, figsize=(ICML_COL_W_IN*4, ICML_LINE_H_IN*1.2), constrained_layout=False)
-    plot_db(axes[0], base_data, "DB w/o Reward Calibration", 'tab:blue', is_calib=False, subsample_every=subsample_every)
-
-    if calib_data is not None:
-        plot_db(axes[1], calib_data, "DB w/ Reward Calibration", 'tab:red', is_calib=True, subsample_every=subsample_every)
+    
+    # ===== 子图1: DB Before (校准前) =====
+    if base_data is not None:
+        plot_db(axes[0], base_data, "DB w/o Reward Calibration", 'tab:blue', 
+                is_calib=False, subsample_every=subsample_every)
     else:
-        axes[1].text(0.5, 0.5, "No calibration data", ha='center', va='center', transform=axes[1].transAxes)
+        axes[0].text(0.5, 0.5, "No base data", 
+                    ha='center', va='center', transform=axes[0].transAxes)
+        axes[0].set_title("DB w/o Reward Calibration", fontsize=10)
+    
+    # ===== 子图2: DB After (校准后) =====
+    if calib_data is not None:
+        plot_db(axes[1], calib_data, "DB w/ Reward Calibration", 'tab:red', 
+                is_calib=True, subsample_every=subsample_every)
+    else:
+        axes[1].text(0.5, 0.5, "No calibration data", 
+                    ha='center', va='center', transform=axes[1].transAxes)
         axes[1].set_title("DB w/ Reward Calibration", fontsize=10)
-
+    
+    # ===== 子图3: zw/zl轨迹 =====
     plot_zw_zl_trajectories(axes[2], base_data, calib_data, subsample_every=subsample_every)
+    
+    # ===== 子图4: margin变化 =====
     plot_margin(axes[3], base_data, calib_data, subsample_every=subsample_every)
-
-    _finalize_and_save_comprehensive(
-        fig,
-        out_dir=out_dir,
-        out_name=f"comprehensive_{base_method}_{model_name}.{SAVE_FORMAT}",
+    
+    # 调整布局
+    # plt.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.subplots_adjust(
+        left=0.04,    # 若 y 轴标签不长，可更小
+        right=0.99,
+        bottom=0.15,  # 保留足够空间给 x 轴标签
+        top=0.88,     # 标题高度
+        wspace=0.2,  # ← 主要调节项：减小此值让子图更紧凑
+        hspace=0.0
     )
+        
+    # 保存
+    out_path = os.path.join(out_dir, f"comprehensive_{base_method}_{model_name}.{SAVE_FORMAT}")
+    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0.)
+    plt.close(fig)
+    print(f"[OK] Saved comprehensive plot for {base_method}: {out_path}")
     
 def plot_all_objectives_comprehensive(
     run_dfs: List[Tuple[str, pd.DataFrame]],
@@ -1352,7 +1543,7 @@ def plot_ratio_with_band_focused(
     if DB_PLOT_MODE == "algorithm_view" and is_calib:
         has_ema_vars = all(col in df.columns for col in ["db/log_r_ema", "db/log_r_star_ema", "db/lower", "db/upper"])
         if not has_ema_vars:
-            print(f"[WARN] {run_label}: algorithm_view mode but missing EMA columns; falling back to raw DB")
+            print(f"[WARN] {run_label}: 算法视角模式但缺少EMA变量，回退到真实DB计算")
             required_cols = ["dw_over_dl", "band_lower", "band_upper"]
     else:
         required_cols = ["dw_over_dl", "band_lower", "band_upper"]
@@ -1360,30 +1551,50 @@ def plot_ratio_with_band_focused(
     if not all(col in df.columns for col in required_cols):
         return
 
-    comp = _compute_db_components(df, is_calib=is_calib)
-    if comp is None:
-        return
-    xs_full = comp["xs_full"]
-    lo_full = comp["lo_full"]
-    up_full = comp["up_full"]
-    r_smooth_full = comp["r_smooth_full"]
-    band_center_smooth_full = comp["band_center_smooth_full"]
+    # === 1. 使用完整数据（不子采样）进行平滑 ===
+    g_full = df.sort_values(x).reset_index(drop=True)
+    xs_full = g_full[x].values
 
-    # === 3. Subsample for plotting (from smoothed full series) ===
+    # 计算完整数据上的 ratio 和 band center
+    if is_calib:
+        alpha_full = pd.to_numeric(g_full["db/alpha"], errors="coerce")
+        dw_corr_full = pd.to_numeric(g_full["dw"], errors="coerce") * alpha_full
+        dl_corr_full = pd.to_numeric(g_full["dl"], errors="coerce") / alpha_full
+        r_full = dw_corr_full / dl_corr_full
+
+        lo_full_raw = pd.to_numeric(g_full["db/lower"], errors="coerce")
+        up_full_raw = pd.to_numeric(g_full["db/upper"], errors="coerce")
+    else:
+        r_full = pd.to_numeric(g_full["dw_over_dl"], errors="coerce")
+        lo_full_raw = pd.to_numeric(g_full["band_lower"], errors="coerce")
+        up_full_raw = pd.to_numeric(g_full["band_upper"], errors="coerce")
+
+    # 指数还原（注意：band_lower/upper 是 log 形式）
+    lo_full = np.exp(lo_full_raw)
+    up_full = np.exp(up_full_raw)
+
+    # 计算 band center（几何平均）
+    band_center_full = np.sqrt(lo_full * up_full)
+
+    # === 2. 在完整数据上做 EWM 平滑 ===
+    r_smooth_full = pd.Series(r_full).ewm(span=FIG_WINDOW, adjust=False).mean()
+    band_center_smooth_full = pd.Series(band_center_full).ewm(span=FIG_WINDOW, adjust=False).mean()
+
+    # === 3. 子采样用于绘图（从平滑后的完整序列中取点）===
     if subsample_every > 1:
         idx_plot = np.arange(0, len(xs_full), subsample_every)
         xs_plot = xs_full[idx_plot]
-        r_smooth_plot = r_smooth_full[idx_plot]
-        band_center_smooth_plot = band_center_smooth_full[idx_plot]
+        r_smooth_plot = r_smooth_full.iloc[idx_plot].values
+        band_center_smooth_plot = band_center_smooth_full.iloc[idx_plot].values
     else:
         xs_plot = xs_full
-        r_smooth_plot = r_smooth_full
-        band_center_smooth_plot = band_center_smooth_full
+        r_smooth_plot = r_smooth_full.values
+        band_center_smooth_plot = band_center_smooth_full.values
 
-    # === 4. Plot ===
+    # === 4. 绘图 ===
     fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-    # Band fill from raw full-resolution data (not smoothed)
+    # 填充 band 区域（使用原始完整数据，非平滑）
     ax.fill_between(xs_full, lo_full, up_full, color='tab:blue', alpha=0.4,
                     label="Disentanglement band", zorder=1)
 
@@ -1391,21 +1602,20 @@ def plot_ratio_with_band_focused(
         ax.plot(xs_full, lo_full, linestyle="--", linewidth=0.9, zorder=2, label="DB lower")
         ax.plot(xs_full, up_full, linestyle="--", linewidth=0.9, zorder=2, label="DB upper")
 
-    # Smoothed curves (subsampled)
+    # 绘制平滑后的曲线（已子采样）
     ax.plot(xs_plot, r_smooth_plot, color='tab:blue', linewidth=1.2,
             label=r"Realized log-ratio $\log r_t$", zorder=3)
     ax.plot(xs_plot, band_center_smooth_plot, color='tab:orange', linewidth=1.2,
             linestyle="--", label=r"Band center $\log r_t^{\star}$", zorder=4)
 
-    # Axes
+    # 坐标轴设置
     ax.set_xlabel("Step")
     ax.set_ylabel(r"Incentive log-ratio")
     ax.set_yscale("log")
     ax = adjust_log_scale(ax, num_ticks=4)
     ax.grid(True, linewidth=0.3, linestyle=':', alpha=0.6)
 
-    # Optional right y-axis
-    g_full = _sorted_subsample(df, x=x, subsample_every=1)
+    # 右侧 y 轴（如果需要）
     if right_axis_col is not None and right_axis_col in g_full.columns:
         y2_full = pd.to_numeric(g_full[right_axis_col], errors="coerce")
         y2_smooth_full = y2_full.ewm(span=FIG_WINDOW, adjust=False).mean()
@@ -1559,39 +1769,53 @@ def compute_unified_y_range(run_dfs, target_labels=("bce", "dpo"), col="dw_over_
     y_max = min(r_max + y_pad, r_max * 1.25)
     return y_min, y_max
 
+def scientific_formatter(x, pos):
+    if x <= 0:
+        return ""
+    if x >= 1:
+        return f"{int(round(x))}"  # 四舍五入到整数（避免 2.999 显示为 2）
+    else:
+        # 动态计算小数位数：确保至少显示 1 位非零数字
+        if x < 1e-5:  # 极小值用科学计数法（避免 0.00000...）
+            return f"{x:.1e}".replace("e-0", r"\times 10^{-").replace("e-", r"\times 10^{-") + "}"
+        else:
+            # 保留足够小数位（例如 0.0005 → 0.0005, 0.01 → 0.01）
+            s = f"{x:.6f}".rstrip('0').rstrip('.')
+            return s if s else "0"
+
 def plot_abstract_figure(
     run_dfs: List[Tuple[str, pd.DataFrame]],
     methods_to_plot: List[str],
-    zw_colors: Dict[str, str],  # method name -> zw line color
-    zl_color: str = "#db7977",  # single zl color for all methods
+    zw_colors: Dict[str, str],  # 方法名 -> zw颜色
+    zl_color: str = "#db7977",  # 所有zl使用相同颜色（灰色）
     out_path: str = None,
     subsample_every: int = 10,
     linewidth: float = 2.0,
     figsize: Tuple[float, float] = (4, 3),
 ) -> None:
     """
-    Minimal zw/zl abstract figure: no axes or frame.
-
+    绘制摘要图：简洁的zw/zl趋势图，无坐标轴和边框
+    
     Args:
-        run_dfs: list of (label, df)
-        methods_to_plot: methods to draw, e.g. ["dpo", "bce", "dpo-calib", "bce-calib"]
-        zw_colors: per-method zw colors
-        zl_color: shared zl color
-        out_path: output path
-        subsample_every: subsample stride
-        linewidth: line width
-        figsize: figure size
+        run_dfs: 运行数据列表 [(label, df), ...]
+        methods_to_plot: 要绘制的方法列表，如 ["dpo", "bce", "dpo-calib", "bce-calib"]
+        zw_colors: 各方法zw曲线的颜色映射
+        zl_color: zl曲线的颜色（所有方法相同）
+        out_path: 输出路径
+        subsample_every: 子采样间隔
+        linewidth: 线宽
+        figsize: 图形尺寸
     """
-    # Figure without frame
+    # 创建图形，去除所有边框
     fig, ax = plt.subplots(figsize=figsize)
     
-    # Hide axes, frame, grid
+    # 去除所有坐标轴、边框、网格
     ax.set_axis_off()
     ax.set_frame_on(False)
     
-    # Collect per-method series
+    # 收集要绘制的方法数据
     for method in methods_to_plot:
-        # Find dataframe for this method
+        # 查找对应的数据
         df = None
         for label, data in run_dfs:
             if label == method:
@@ -1599,19 +1823,19 @@ def plot_abstract_figure(
                 break
         
         if df is None or df.empty:
-            print(f"[WARN] method {method}: no data, skipping")
+            print(f"[WARN] 方法 {method} 无数据，跳过")
             continue
         
-        # Subsample
+        # 子采样
         df_plot = df.iloc[::subsample_every].reset_index(drop=True)
         
-        # Require step column
+        # 确保有step列
         if "step" not in df_plot.columns:
             continue
         
         xs = df_plot["step"].values
         
-        # zw
+        # 绘制zw曲线
         if "zw" in df_plot.columns:
             zw = pd.to_numeric(df_plot["zw"], errors="coerce")
             if not zw.isna().all():
@@ -1620,7 +1844,7 @@ def plot_abstract_figure(
                 linestyle = "-" if "-calib" in method else "-"
                 ax.plot(xs, zw_sm.values, color=zw_color, linestyle=linestyle, linewidth=linewidth)
         
-        # zl
+        # 绘制zl曲线
         if "zl" in df_plot.columns:
             zl = pd.to_numeric(df_plot["zl"], errors="coerce")
             if not zl.isna().all():
@@ -1647,7 +1871,7 @@ def plot_abstract_db_figure(
     if df.empty or "step" not in df.columns:
         return
 
-    # === 1. Ratio and band on full resolution ===
+    # === 1. 使用完整数据计算 ratio 和 band ===
     g_full = df.sort_values("step").reset_index(drop=True)
     xs_full = g_full["step"].values
 
@@ -1665,16 +1889,16 @@ def plot_abstract_db_figure(
         lo_full_raw = pd.to_numeric(g_full["band_lower"], errors="coerce")
         up_full_raw = pd.to_numeric(g_full["band_upper"], errors="coerce")
 
-    # Exp map (log domain -> linear ratio)
+    # 指数还原（log → linear）
     lo_full = np.exp(lo_full_raw)
     up_full = np.exp(up_full_raw)
     band_center_full = np.sqrt(lo_full * up_full)
 
-    # === 2. EWM smooth on full series ===
+    # === 2. 在完整数据上做 EWM 平滑 ===
     r_smooth_full = pd.Series(r_full).ewm(span=FIG_WINDOW, adjust=False).mean()
     band_center_smooth_full = pd.Series(band_center_full).ewm(span=FIG_WINDOW, adjust=False).mean()
 
-    # === 3. Subsample for plotting ===
+    # === 3. 子采样用于绘图 ===
     if subsample_every > 1:
         idx_plot = np.arange(0, len(xs_full), subsample_every)
         xs_plot = xs_full[idx_plot]
@@ -1685,18 +1909,18 @@ def plot_abstract_db_figure(
         r_smooth_plot = r_smooth_full.values
         band_center_smooth_plot = band_center_smooth_full.values
 
-    # === 4. Borderless figure ===
+    # === 4. 创建无边框图形 ===
     fig, ax = plt.subplots(figsize=figsize)
     ax.set_axis_off()
     ax.set_frame_on(False)
     ax.set_yscale("log")
 
-    # === 5. Band fill from raw full data (not smoothed) ===
-    # Slightly stronger color/alpha for print visibility
+    # === 5. 填充 band 区域（使用完整原始数据，非平滑）===
+    # 使用更深的颜色 + 更高 alpha 提升打印可见性
     fill_color = mcolors.to_hex(mcolors.to_rgb(color) if color != "tab:blue" else "#1f77b4")
     ax.fill_between(xs_full, lo_full, up_full, color=fill_color, alpha=0.35, zorder=1)
 
-    # === 6. Smoothed curves (subsampled) ===
+    # === 6. 绘制平滑曲线（已子采样）===
     ax.plot(xs_plot, r_smooth_plot, color=color, linewidth=linewidth, linestyle="-", zorder=3)
     ax.plot(xs_plot, band_center_smooth_plot, color=center_color, linewidth=linewidth * 0.8, linestyle="--", zorder=4)
 
@@ -1709,30 +1933,52 @@ def generate_abstract_figures(
     model_name: str,
     out_dir: str,
 ) -> None:
+    """
+    为指定模型生成所有摘要图
+    
+    Args:
+        run_dfs: 运行数据
+        model_name: 模型名称
+        out_dir: 输出目录
+    """
+    # 创建摘要图目录
     abstract_dir = os.path.join(out_dir, "abstract_figures")
     ensure_dir(abstract_dir)
     
+    # 定义要绘制的方法
+    # methods = ["dpo", "bce", "dpo-calib", "bce-calib"]
     methods = ["dpo", "cpo", "dpo-calib", "cpo-calib"]  
-    zw_colors = {
-        "dpo": "#61b283",  # BASE["dpo"] coral
-        "cpo": "#61b283",  # BASE["bce"] blue
-        "dpo-calib": "#61b283",  # lighten(BASE["dpo"]) light coral
-        "cpo-calib": "#61b283",  # lighten(BASE["bce"]) light blue
-    }
     
+    # 定义zw颜色（使用现有BASE颜色）
+    zw_colors = {
+        "dpo": "#61b283", # BASE["dpo"],        # 珊瑚红
+        "cpo": "#61b283", # BASE["bce"],        # 深蓝
+        "dpo-calib": "#61b283", #lighten(BASE["dpo"]),  # 浅珊瑚红
+        "cpo-calib": "#61b283", #lighten(BASE["bce"]),  # 浅深蓝
+    }
+    # zw_colors = {
+    #     "dpo": "#61b283", # BASE["dpo"],        # 珊瑚红
+    #     "bce": "#61b283", # BASE["bce"],        # 深蓝
+    #     "dpo-calib": "#61b283", #lighten(BASE["dpo"]),  # 浅珊瑚红
+    #     "bce-calib": "#61b283", #lighten(BASE["bce"]),  # 浅深蓝
+    # }
+    
+    # 生成单个摘要图（所有方法在一张图）
     out_path = os.path.join(abstract_dir, f"abstract_all_methods_{model_name}.{SAVE_FORMAT}")
     plot_abstract_figure(
         run_dfs=run_dfs,
         methods_to_plot=methods,
         zw_colors=zw_colors,
-        zl_color="#db7977",  
+        zl_color="#db7977",  # 深灰色
         out_path=out_path,
-        subsample_every=20,  
+        subsample_every=20,  # 较大的子采样，使曲线更平滑
         linewidth=2.5,
         figsize=(6, 4),
     )
     
+    # 也可以为每个方法单独生成摘要图
     for method in ["dpo", "cpo"]:
+        # 原始版本
         out_path_single = os.path.join(abstract_dir, f"abstract_{method}_{model_name}.{SAVE_FORMAT}")
         plot_abstract_figure(
             run_dfs=run_dfs,
@@ -1745,7 +1991,7 @@ def generate_abstract_figures(
             figsize=(4, 3),
         )
         
-        # Also emit calib variant when present
+        # 如果有calib版本，也单独生成
         calib_method = f"{method}-calib"
         if any(lbl == calib_method for lbl, _ in run_dfs):
             out_path_calib = os.path.join(abstract_dir, f"abstract_{calib_method}_{model_name}.{SAVE_FORMAT}")
@@ -1761,6 +2007,7 @@ def generate_abstract_figures(
             )
         
     for method in ["dpo", "cpo"]:
+        # 原始版本
         df_orig = None
         for lbl, data in run_dfs:
             if lbl == method:
@@ -1778,7 +2025,7 @@ def generate_abstract_figures(
                 color="#1f77b4",
             )
 
-        # Calibrated variant
+        # 校准版本
         calib_method = f"{method}-calib"
         df_calib = None
         for lbl, data in run_dfs:
@@ -1797,79 +2044,12 @@ def generate_abstract_figures(
                 color="#1f77b4",
             )
     
-    print(f"[DONE] Abstract figures saved under: {abstract_dir}")
+    print(f"[DONE] 摘要图已保存至: {abstract_dir}")
 
 
-def _task_ratio_band_per_run(run_dfs: List[Tuple[str, pd.DataFrame]], model_name: str) -> None:
-    band_dir = os.path.join(OUT_DIR, "ratio_band_per_run")
-    ensure_dir(band_dir)
-    y_min, y_max = compute_unified_y_range(run_dfs)
-    for run_label, df in run_dfs:
-        outp = os.path.join(band_dir, f"Band_dw_over_dl_{safe_slug(run_label)}_{model_name}.{SAVE_FORMAT}")
-        plot_ratio_with_band_focused(
-            run_label, df, outp,
-            x="step",
-            use_log_y=True,
-            y_min=y_min,
-            y_max=y_max,
-        )
-        print(f"[OK] Saved: {outp}")
-
-
-def _task_zw_zl_per_method(run_dfs: List[Tuple[str, pd.DataFrame]], model_name: str) -> None:
-    zw_zl_dir = os.path.join(OUT_DIR, "zw_zl_per_method")
-    ensure_dir(zw_zl_dir)
-
-    base_methods = set()
-    for lbl, _ in run_dfs:
-        if "-calib" in lbl:
-            base_methods.add(lbl.split("-")[0])
-        else:
-            base_methods.add(lbl)
-
-    for base_label in sorted(base_methods):
-        plot_zw_zl_per_method(
-            base_label=base_label,
-            run_dfs=run_dfs,
-            out_dir=zw_zl_dir,
-            model_name=model_name,
-            subsample_every=20,
-        )
-        print(f"[OK] Saved zw/zl plot for: {base_label}")
-
-
-def _resolve_methods_to_plot(run_dfs: List[Tuple[str, pd.DataFrame]], model_name: str) -> List[str]:
-    if model_name == "pythia-410m":
-        return ["bce", "dpo", "ipo", "cpo", "simpo", "lsif", "ukl", "ddro"]
-    if model_name == "pythia-2b":
-        return ["bce", "dpo", "ipo", "cpo", "lsif", "ukl", "ddro", "simpo", "tidpo", "ppt"]
-    if model_name in ["mistral-7b", "qwen2.5-7b"]:
-        return ["bce", "dpo", "cpo", "simpo", "ddro", "lsif", "tidpo", "ppt"]
-    return sorted({lbl for lbl, _ in run_dfs if "-calib" not in lbl})
-
-
-def _task_comprehensive(run_dfs: List[Tuple[str, pd.DataFrame]], model_name: str) -> None:
-    print("\n[INFO] Plotting comprehensive objective plots...")
-    comprehensive_dir = os.path.join(OUT_DIR, "comprehensive")
-    if PYTHIA2B_DBEMA_SWEEP_MODE:
-        plot_objective_comprehensive_dpo_dbema_sweep(
-            run_dfs=run_dfs,
-            out_dir=comprehensive_dir,
-            model_name=model_name,
-            subsample_every=5,
-        )
-        return
-
-    methods_to_plot = _resolve_methods_to_plot(run_dfs, model_name)
-    plot_all_objectives_comprehensive(
-        run_dfs=run_dfs,
-        out_dir=comprehensive_dir,
-        model_name=model_name,
-        methods_to_plot=methods_to_plot,
-        subsample_every=5,
-    )
-
-
+# =========================
+# Main
+# =========================
 def main() -> None:
     ensure_dir(OUT_DIR)
 
@@ -1901,7 +2081,7 @@ def main() -> None:
     MAX_STEP = global_max
     print(f"[INFO] global_max_step={global_max} => MAX_STEP ={MAX_STEP}")
     
-    # Subdir: per-run processed scalars
+    # 子目录：存放每个 run 的处理后数据
     PROCESSED_RUNS_DIR = os.path.join(OUT_DIR, "processed_runs")
     ensure_dir(PROCESSED_RUNS_DIR)
 
@@ -2030,7 +2210,7 @@ def main() -> None:
     #             force_no_smooth=cfg["force_no_smooth"],
     #             no_smooth_cols=GLOBAL_NO_SMOOTH_COLS,
     #             subsample_every=SUBSAMPLE_EVERY.get(cfg["name"], 1),
-    #             use_method_colors=False,  # multi-method comparison
+    #             use_method_colors=False,  # 多方法比较
     #         )
     #     else:
     #         plot_compare_lines(
@@ -2078,17 +2258,31 @@ def main() -> None:
     # )
     # print(f"[OK] Saved: {out_rho}")
     
-    # Active plotting now uses a task table.
+    # 逐一画出不同方法下dw/dl及对应的band
+    band_dir = os.path.join(OUT_DIR, "ratio_band_per_run")
+    ensure_dir(band_dir)
+    
+    y_min, y_max = compute_unified_y_range(run_dfs)
+    for run_label, df in run_dfs:
+        outp = os.path.join(band_dir, f"Band_dw_over_dl_{safe_slug(run_label)}_{llm_model}.{SAVE_FORMAT}")
+        plot_ratio_with_band_focused(
+            run_label, df, outp,
+            x="step",
+            use_log_y=True,
+            y_min=y_min,
+            y_max=y_max
+        )
+        print(f"[OK] Saved: {outp}")
 
     # # 6) AllVars vs step (filtered, non-duplicate)
     # if AUTO_PLOT_ALL_VARS:
     #     auto_dir = os.path.join(OUT_DIR, AUTO_PLOT_DIRNAME)
     #     ensure_dir(auto_dir)
     
-    #     # Columns already covered by Fig1–Fig5
+    #     # 已绘制列（Fig1–Fig5）
     #     already_plotted_cols = {"m", drift_col, var_col, snr_col, mvar_col, "abs_delta_m_raw"}
     
-    #     # Union of existing, allowed, non-constant columns
+    #     # 收集所有存在的、允许的、非常量的列
     #     cols_exist = {col for _, df in run_dfs for col in df.columns}
     #     candidate_cols = (ALLVARS_ALLOWLIST & cols_exist) - already_plotted_cols
     #     allvars_cols = {c for c in candidate_cols if not is_constant_across_all_runs(run_dfs, c)}
@@ -2115,30 +2309,75 @@ def main() -> None:
     #         )
     #         print(f"[OK] Saved: {out_path}")
     
-    #     # 1. Symmetric groups
+    #     # 1. 绘制对称组
     #     for g in ALLVARS_SYMMETRIC_GROUPS:
     #         print(g)
     #         cols = [c for c in g["cols"] if c in allvars_cols]
     #         if cols:
     #             _plot_vars(cols, g["slug"], is_group=True)
     
-    #     # 2. Remaining single columns
+    #     # 2. 绘制剩余单列
     #     remaining = sorted(allvars_cols - grouped_cols)
     #     for col in remaining:
     #         _plot_vars([col], col, is_group=False)
     
     #     print(f"[DONE] AllVars plots saved to: {auto_dir}")
 
-    active_tasks = [
-        ("ratio_band_per_run", _task_ratio_band_per_run),
-        ("zw_zl_per_method", _task_zw_zl_per_method),
-        ("comprehensive", _task_comprehensive),
-    ]
-    for task_name, task_fn in active_tasks:
-        print(f"[INFO] Running task: {task_name}")
-        task_fn(run_dfs, llm_model)
+    # === Per-method zw/zl plots (like ratio_band_per_run) ===
+    zw_zl_dir = os.path.join(OUT_DIR, "zw_zl_per_method")
+    ensure_dir(zw_zl_dir)
     
-    # # 8) Abstract figures (optional)
+    base_methods = set()
+    for lbl, _ in run_dfs:
+        if "-calib" in lbl:
+            base = lbl.split("-")[0]
+            base_methods.add(base)
+        else:
+            base_methods.add(lbl)
+    
+    # Plot each base method
+    for base_label in sorted(base_methods):
+        plot_zw_zl_per_method(
+            base_label=base_label,
+            run_dfs=run_dfs,
+            out_dir=zw_zl_dir,
+            model_name=llm_model,
+            subsample_every=20,
+        )
+        print(f"[OK] Saved zw/zl plot for: {base_label}")
+    
+    # 6) 绘制每个objective的综合图（新增）
+    print("\n[INFO] Plotting comprehensive objective plots...")
+    comprehensive_dir = os.path.join(OUT_DIR, "comprehensive")
+
+    if PYTHIA2B_DBEMA_SWEEP_MODE:
+        plot_objective_comprehensive_dpo_dbema_sweep(
+            run_dfs=run_dfs,
+            out_dir=comprehensive_dir,
+            model_name=llm_model,
+            subsample_every=5,
+        )
+    else:
+        # 根据模型决定要绘制的方法
+        if llm_model == "pythia-410m":
+            methods_to_plot = ["bce", "dpo", "ipo", "cpo", "simpo", "lsif", "ukl", "ddro"]
+        elif llm_model == "pythia-2b":
+            methods_to_plot = ["bce", "dpo", "ipo", "cpo", "lsif", "ukl", "ddro", "simpo", "tidpo"]
+        elif llm_model == "mistral-7b":
+            methods_to_plot = ["bce", "dpo", "cpo", "simpo", "ddro", "lsif", "tidpo"]
+        else:
+            # 默认：所有非校准方法
+            methods_to_plot = sorted({lbl for lbl, _ in run_dfs if "-calib" not in lbl})
+
+        plot_all_objectives_comprehensive(
+            run_dfs=run_dfs,
+            out_dir=comprehensive_dir,
+            model_name=llm_model,
+            methods_to_plot=methods_to_plot,
+            subsample_every=5,
+        )
+    
+    # # 8) 生成摘要图（新增功能）
     # print("\n[INFO] Generating abstract figures for paper...")
     # generate_abstract_figures(
     #     run_dfs=run_dfs,

@@ -6,9 +6,9 @@ outputs/results/mistral-7b-calib/, compares each method's metrics before vs afte
 and prints tables.
 
 You can switch model/directory via environment variables:
-- DIL_MODEL_NAME: model name (e.g. "pythia-2b" or "mistral-7b"), expanded to "{model}-base" / "{model}-calib"
-- DIL_BASE_SUBDIR: override base subdir name (default "{model}-base")
-- DIL_CALIB_SUBDIR: override calib subdir name (default "{model}-calib")
+- DPO_MODEL_NAME: model name (e.g. "pythia-2b" or "mistral-7b"), expanded to "{model}-base" / "{model}-calib"
+- DPO_BASE_SUBDIR: override base subdir name (default "{model}-base")
+- DPO_CALIB_SUBDIR: override calib subdir name (default "{model}-calib")
 
 Supported eval types:
 - arc: **/out_arc_*.json
@@ -22,7 +22,7 @@ Supported eval types:
 
 Select type by editing EVAL_TYPE at the top of this file.
 
-CLI examples (from DIL/outputs/):
+CLI examples (from DPO/outputs/):
   python compare_calib_results.py --eval-type musr --model pythia-2b
   python compare_calib_results.py --eval-type bbh,mmlu_pro,musr --model qwen2.5-7b
 
@@ -1823,7 +1823,7 @@ def main():
         type=str,
         default=None,
         help='Model name used to locate results dirs (e.g. "pythia-2b", "mistral-7b"). '
-             'Overrides env DIL_MODEL_NAME if provided.',
+             'Overrides env DPO_MODEL_NAME if provided.',
     )
     parser.add_argument(
         "--aggregate-calib-runs",
@@ -1840,11 +1840,11 @@ def main():
     
     # Paths
     script_dir = Path(__file__).parent
-    # Directory resolution: CLI --model > env DIL_MODEL_NAME > default "mistral-7b"
-    model_name = (args.model or os.getenv("DIL_MODEL_NAME") or "mistral-7b").strip()
-    # Override subdir names via env: DIL_BASE_SUBDIR / DIL_CALIB_SUBDIR
-    base_subdir = (os.getenv("DIL_BASE_SUBDIR") or f"{model_name}-base").strip()
-    calib_subdir = (os.getenv("DIL_CALIB_SUBDIR") or f"{model_name}-calib").strip()
+    # Directory resolution: CLI --model > env DPO_MODEL_NAME > default "mistral-7b"
+    model_name = (args.model or os.getenv("DPO_MODEL_NAME") or "mistral-7b").strip()
+    # Override subdir names via env: DPO_BASE_SUBDIR / DPO_CALIB_SUBDIR
+    base_subdir = (os.getenv("DPO_BASE_SUBDIR") or f"{model_name}-base").strip()
+    calib_subdir = (os.getenv("DPO_CALIB_SUBDIR") or f"{model_name}-calib").strip()
 
     base_dir = script_dir / "results" / base_subdir
     calib_dir = script_dir / "results" / calib_subdir

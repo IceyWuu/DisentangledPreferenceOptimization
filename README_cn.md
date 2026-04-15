@@ -1,4 +1,4 @@
-# DIL：《Towards Disentangled Preference Optimization Dynamics》中文说明
+# 《Towards Disentangled Preference Optimization Dynamics》中文说明
 
 **[English README → `README.md`](README.md)**
 
@@ -30,10 +30,10 @@
 当前机器示例：**RTX 5090，CUDA 12.8**。
 
 ```bash
-conda create -n DIL python=3.10 -y
-conda activate DIL
-pip install -r requirements_cuda128.txt
-pip install -r requirements_cuda128_supply.txt
+conda create -n DPO python=3.10 -y
+conda activate DPO
+pip install -r envfiles/requirements_cuda128.txt
+pip install -r envfiles/requirements_cuda128_supply.txt
 ```
 
 ### 2.2 论文复现基线（可选）
@@ -41,7 +41,7 @@ pip install -r requirements_cuda128_supply.txt
 从 [PyTorch 安装页](https://pytorch.org/get-started/locally/) 安装 **PyTorch 2.1.2**，并安装 **flash-attn**：
 
 ```bash
-conda create -n DIL python=3.10 && conda activate DIL
+conda create -n DPO python=3.10 && conda activate DPO
 python -m pip install flash-attn --no-build-isolation
 ```
 
@@ -51,11 +51,11 @@ python -m pip install flash-attn --no-build-isolation
 
 ## 3. 目录约定
 
-公开仓库通常只包含 **`DIL/`**；父目录与权重、数据集需自行准备。推荐顶层布局：
+公开仓库通常只包含 **`DPO/`**；父目录与权重、数据集需自行准备。推荐顶层布局：
 
 ```text
 LLM_alignment/
-├── DIL/
+├── DPO/
 ├── ModelAndDatasets/
 │   ├── alignment-handbook
 │   ├── EleutherAI/
@@ -71,7 +71,7 @@ LLM_alignment/
 
 ## 4. 偏好学习训练（`aexperiment.sh`）
 
-所有模型族共用 **`aexperiment.sh`**，用 **`--model-family`** 选择配置；输出在 `DIL/outputs/<run_name>/`。
+所有模型族共用 **`aexperiment.sh`**，用 **`--model-family`** 选择配置；输出在 `DPO/outputs/<run_name>/`。
 
 ### 4.1 模型族与默认配置
 
@@ -96,7 +96,7 @@ LLM_alignment/
 ### 4.3 示例
 
 ```bash
-cd DIL
+cd DPO
 
 bash aexperiment.sh --model-family qwen2.5-7b --loss-types "DPO BCE" \
   --gpu-ids 0,1,2,3 --category both
@@ -151,9 +151,9 @@ CLEAN_CACHE=false
 
 | 脚本 | 说明 |
 |------|------|
-| `bash Mistral-7B-Base.sh` | Mistral-Base |
-| `bash Llama-8B-Base.sh` | Llama3-Base |
-| `bash Pythia-410M-Base.sh` | HALO 风格，DPO 或 DIL-LSIF |
+| `bash legacy_scripts/Mistral-7B-Base.sh` | Mistral-Base |
+| `bash legacy_scripts/Llama-8B-Base.sh` | Llama3-Base |
+| `bash legacy_scripts/Pythia-410M-Base.sh` | Pythia-410M-Base |
 
 **Pythia-410M：** `MODEL_PATH` / `USE_4BIT`；全量微调 `use_peft=false`；可用 `DEFAULT_*` 或环境变量覆盖。
 
@@ -161,12 +161,12 @@ CLEAN_CACHE=false
 
 ## 6. 下游评测（速查）
 
-入口 **`DIL/outputs/run_eval.sh`**。完整说明见 **[`eval.md`](eval.md)**。
+入口 **`DPO/outputs/run_eval.sh`**。完整说明见 **[`eval.md`](eval.md)**。
 
 - [Leaderboard v1](https://huggingface.co/spaces/open-llm-leaderboard-old/open_llm_leaderboard) / [v2](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard)
 
 ```bash
-cd DIL/outputs
+cd DPO/outputs
 bash run_eval.sh --model-family qwen2.5-7b --methods "dpo,bce" --category all \
   --eval-method all --parallel-gpus 0,1,2,7
 ```

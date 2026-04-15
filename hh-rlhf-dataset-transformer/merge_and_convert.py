@@ -3,9 +3,9 @@ Merge harmless-base and helpful-base from Anthropic hh-rlhf into a single
 dataset in OpenAI message format, saved as HuggingFace `load_from_disk`
 compatible splits (train / test).
 
-Output is compatible with DIL/aexperiment_mistral_7b.sh --dataset hh-rlhf-merged.
+Output is compatible with DPO/aexperiment_mistral_7b.sh --dataset hh-rlhf-merged.
 
-Usage (from DIL directory):
+Usage (from DPO directory):
     python hh-rlhf-dataset-transformer/merge_and_convert.py
 """
 

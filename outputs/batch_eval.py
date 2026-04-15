@@ -138,7 +138,7 @@ BASE_MODEL_PATHS = {
         "PYTHIA_2B_BASE_MODEL",
         "../../ModelAndDatasets/alignment-handbook/pythia-2.8b",
     ),
-    # Same convention as other families: relative to DIL/outputs working directory.
+    # Same convention as other families: relative to DPO/outputs working directory.
     "qwen2.5-7b": os.environ.get(
         "QWEN25_7B_INSTRUCT_BASE_MODEL",
         "../../ModelAndDatasets/alignment-handbook/qwen2.5-7b-instruct",

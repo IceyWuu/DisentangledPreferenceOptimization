@@ -6,7 +6,7 @@ splits (train / test).
 Source: ModelAndDatasets/Anthropic___hh-rlhf/default/0.0.0/<hash>/hh-rlhf-{train,test}.arrow
 Output: ModelAndDatasets/Anthropic___hh-rlhf/local_disk/{train,test}
 
-Usage (from DIL directory):
+Usage (from DPO directory):
     python hh-rlhf-dataset-transformer/prepare_default.py
 """
 

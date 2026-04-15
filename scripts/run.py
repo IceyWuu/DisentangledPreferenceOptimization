@@ -229,7 +229,7 @@ def main():
         v = os.getenv(name, "")
         return v.lower() in {"1", "true", "yes", "y", "on"}
 
-    train_time_eval = _env_true("TRAIN_TIME_EVAL") or _env_true("DIL_TRAIN_TIME_EVAL")
+    train_time_eval = _env_true("TRAIN_TIME_EVAL") or _env_true("DPO_TRAIN_TIME_EVAL")
 
     #######
     # Setup

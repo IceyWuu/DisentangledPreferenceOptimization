@@ -1,4 +1,4 @@
-# Evaluation tutorial (DIL)
+# Evaluation tutorial
 
 This guide walks you through benchmarking models trained with this repository: **lm-evaluation-harness** (Open LLM Leaderboard V1/V2-style tasks), optional **manual harness runs**, and **AlpacaEval** for instruction-following comparisons.
 
@@ -21,7 +21,7 @@ Assume a top-level folder (e.g. `LLM_alignment/`) that contains this repo and sh
 
 ```text
 LLM_alignment/
-├── DIL/                              # this repository
+├── DPO/                              # this repository
 │   └── outputs/                      # run batch eval from here (or set paths in batch_eval.py)
 ├── ModelAndDatasets/                 # base weights, datasets, caches
 ├── LeaderBoardV1/
@@ -107,7 +107,7 @@ python -c "from datasets import load_dataset; print(load_dataset('ai2_arc', 'ARC
 
 ## 5. Recommended: `run_eval.sh` and `batch_eval.py`
 
-From `DIL/outputs/`:
+From `DPO/outputs/`:
 
 - **`batch_eval.py`** discovers trained checkpoints, **merges LoRA when needed** (cached under `output_merged/` with hash-based reuse), and runs the correct harness command per benchmark.
 - You do **not** need to manually `conda activate` for each task: the script dispatches subprocesses with `lmeval_v1` or `lmeval_v2` as configured in `CONDA_ENV_MAP` inside `batch_eval.py`.
@@ -115,7 +115,7 @@ From `DIL/outputs/`:
 ### 5.1 Shell wrapper (runs comparison after eval)
 
 ```bash
-cd DIL/outputs
+cd DPO/outputs
 
 bash run_eval.sh --model-family qwen2.5-7b --methods "dpo,bce" --category all \
   --eval-method "arc,gsm8k,math_hard" --parallel-gpus 0,1,2
@@ -124,7 +124,7 @@ bash run_eval.sh --model-family qwen2.5-7b --methods "dpo,bce" --category all \
 ### 5.2 Direct Python entry
 
 ```bash
-cd DIL/outputs
+cd DPO/outputs
 
 python batch_eval.py --model-family mistral-7b --methods "dpo,bce,cpo" --category base \
   --eval-method mmlu_pro \
@@ -159,7 +159,7 @@ python batch_eval.py --model-family qwen2.5-7b --methods "dpo,bce" --category al
 
 ### 5.4 Where results go
 
-Under `DIL/outputs/results/` (or `--results-base`), organized by model family and task, for example:
+Under `DPO/outputs/results/` (or `--results-base`), organized by model family and task, for example:
 
 ```text
 outputs/results/
@@ -176,7 +176,7 @@ outputs/results/
 After evaluation, summaries can be generated with:
 
 ```bash
-cd DIL/outputs
+cd DPO/outputs
 
 python compare_calib_results.py --eval-type mmlu_pro --model pythia-2b
 python compare_calib_results.py --eval-type bbh --model mistral-7b
@@ -327,12 +327,12 @@ AlpacaEval compares model outputs to reference models on instruction-following b
 pip install -U alpaca_eval
 ```
 
-### 9.2 Batch script (`DIL/outputs`)
+### 9.2 Batch script (`DPO/outputs`)
 
 Dry-run to verify discovery and CLI:
 
 ```bash
-cd DIL/outputs
+cd DPO/outputs
 python batch_alpacaeval2_ood.py \
   --model-family pythia-2b \
   --methods dpo,simpo,bce \
@@ -385,7 +385,7 @@ AlpacaEval ships multiple named judge configurations. List them with the library
 
 1. [ ] Clone and pin **V1** and **V2** harnesses; create `lmeval_v1` / `lmeval_v2`.
 2. [ ] Set **HF cache** (and mirror if needed).
-3. [ ] `cd DIL/outputs` and run **`run_eval.sh`** or **`batch_eval.py`** with your `--model-family`, `--methods`, `--category`, and `--eval-method`.
+3. [ ] `cd DPO/outputs` and run **`run_eval.sh`** or **`batch_eval.py`** with your `--model-family`, `--methods`, `--category`, and `--eval-method`.
 4. [ ] Run **`compare_calib_results.py`** for base vs calib tables (or rely on `run_eval.sh` to invoke it).
 5. [ ] (Optional) **AlpacaEval** with env-based API credentials.
 

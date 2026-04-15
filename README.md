@@ -30,10 +30,10 @@ If you use this code before the camera-ready reference is available, you can cit
 Example hardware: **RTX 5090, CUDA 12.8**.
 
 ```bash
-conda create -n DIL python=3.10 -y
-conda activate DIL
-pip install -r requirements_cuda128.txt
-pip install -r requirements_cuda128_supply.txt
+conda create -n DPO python=3.10 -y
+conda activate DPO
+pip install -r envfiles/requirements_cuda128.txt
+pip install -r envfiles/requirements_cuda128_supply.txt
 ```
 
 ### Paper-style baseline (optional)
@@ -41,7 +41,7 @@ pip install -r requirements_cuda128_supply.txt
 Install **PyTorch 2.1.2** from the [PyTorch installation page](https://pytorch.org/get-started/locally/), then:
 
 ```bash
-conda create -n DIL python=3.10 && conda activate DIL
+conda create -n DPO python=3.10 && conda activate DPO
 python -m pip install flash-attn --no-build-isolation
 ```
 
@@ -51,11 +51,11 @@ Use either stack (or mix) depending on your GPU and reproduction goals.
 
 ## Directory layout
 
-The public repo is usually just **`DIL/`**; parent folders for weights and data are local. Suggested top-level layout:
+The public repo is usually just **`DPO/`**; parent folders for weights and data are local. Suggested top-level layout:
 
 ```text
 LLM_alignment/
-├── DIL/                         # this repo (scripts, recipes, outputs)
+├── DPO/                         # this repo (scripts, recipes, outputs)
 ├── ModelAndDatasets/
 │   ├── alignment-handbook
 │   ├── EleutherAI/              # e.g. pythia-410m, pythia-1.4b, pythia-2.8b
@@ -71,7 +71,7 @@ Point recipes (or env vars / CLI overrides) at your real paths.
 
 ## Preference learning (unified entry: `aexperiment.sh`)
 
-All supported model families share **`aexperiment.sh`**; choose the profile with **`--model-family`**. Checkpoints and logs go under `DIL/outputs/<run_name>/`.
+All supported model families share **`aexperiment.sh`**; choose the profile with **`--model-family`**. Checkpoints and logs go under `DPO/outputs/<run_name>/`.
 
 ### Model families and defaults
 
@@ -98,7 +98,7 @@ Defaults can be overridden with environment variables (`FIXED_LR`, `PER_DEVICE_B
 ### Examples
 
 ```bash
-cd DIL
+cd DPO
 
 bash aexperiment.sh --model-family qwen2.5-7b --loss-types "DPO BCE" \
   --gpu-ids 0,1,2,3 --category both
@@ -151,13 +151,13 @@ CLEAN_CACHE=false              # clear HF dataset cache shards before train
 
 ## Legacy training scripts (alongside `aexperiment.sh`)
 
-These live in the repo root or `legacy_scripts/`. **New work should prefer `aexperiment.sh`.**
+These live under `legacy_scripts/`. **New work should prefer `aexperiment.sh`.**
 
 | Command | Role |
 |---------|------|
-| `bash Mistral-7B-Base.sh` | Mistral-Base |
-| `bash Llama-8B-Base.sh` | Llama3-Base |
-| `bash Pythia-410M-Base.sh` | HALO-style Pythia-410M, **DPO or DIL-LSIF** |
+| `bash legacy_scripts/Mistral-7B-Base.sh` | Mistral-Base |
+| `bash legacy_scripts/Llama-8B-Base.sh` | Llama3-Base |
+| `bash legacy_scripts/Pythia-410M-Base.sh` | Pythia-410M-Base |
 
 **Pythia-410M-Base.sh notes:**
 
@@ -170,14 +170,14 @@ LOSS_TYPE=LSIF \
 LEARNING_RATE=6e-7 \
 HUB_MODEL_ID=My-Pythia410-LSIF \
 OUTPUT_DIR=/data/experiments/pythia410-lsif \
-bash Pythia-410M-Base.sh
+bash legacy_scripts/Pythia-410M-Base.sh
 ```
 
 ---
 
 ## Evaluation (quick reference)
 
-Scripts live under **`DIL/outputs/`**. Recommended entry: **`run_eval.sh`** (wraps `batch_eval.py` and can run `compare_calib_results.py` after).
+Scripts live under **`DPO/outputs/`**. Recommended entry: **`run_eval.sh`** (wraps `batch_eval.py` and can run `compare_calib_results.py` after).
 
 ### Leaderboard links
 
@@ -193,7 +193,7 @@ In this repo, **`arc` / `gsm8k` / `mmlu`** use the V1 harness; **`bbh` / `math_h
 | `--model-family` | Family to evaluate | `pythia-2b` `mistral-7b` `qwen2.5-7b` `all` |
 | `--methods` | Trained method(s) | Comma list or `all` |
 | `--category` | Filter runs | `all` `base` `calib` |
-| `--eval-method` | Benchmarks (required) | `math_hard` `mmlu_pro` `bbh` `musr` `arc` `gsm8k` `mmlu` or `all` |
+| `--eval-method` | Benchmarks (required) | `math_hard` `mmlu_pro` `bbh` `musr` `arc` `gsm8k` or `all` |
 | `--parallel-gpus` | Parallel GPUs | e.g. `0,1,2,7` |
 | `--skip-existing` | Skip if result exists | — |
 | `--dry-run` | Print plan only | — |
@@ -201,7 +201,7 @@ In this repo, **`arc` / `gsm8k` / `mmlu`** use the V1 harness; **`bbh` / `math_h
 ### Examples
 
 ```bash
-cd DIL/outputs
+cd DPO/outputs
 
 bash run_eval.sh --model-family qwen2.5-7b --methods "dpo,bce" --category all \
   --eval-method all --parallel-gpus 0,1,2,7
@@ -221,11 +221,11 @@ Summaries: `outputs/results/compare_results/<model-family>/` (Markdown).
 TRL + LoRA / QLoRA. Install YAML helpers:
 
 ```bash
-conda activate DIL
+conda activate DPO
 pip install ruamel.yaml
 ```
 
-Run from **`DIL/`** (set `GPU_IDS` to your device).
+Run from **`DPO/`** (set `GPU_IDS` to your device).
 
 ### BF16 + LoRA (faster if VRAM allows)
 
@@ -244,7 +244,7 @@ LOAD_IN_4BIT=true PER_DEVICE_BATCH_SIZE=16 GRAD_ACCUMULATION_STEPS=4 \
 ### Background
 
 ```bash
-nohup bash -c "conda run -n DIL bash aexperiment_sft.sh" > train_sft.log 2>&1 &
+nohup bash -c "conda run -n DPO bash aexperiment_sft.sh" > train_sft.log 2>&1 &
 tail -f train_sft.log
 ```
 
