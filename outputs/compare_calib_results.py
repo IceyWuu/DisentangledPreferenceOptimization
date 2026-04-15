@@ -1,36 +1,39 @@
 """
-比较calib前后各方法的评测结果变化。
+Compare evaluation metrics before and after calibration across methods.
 
-默认读取 outputs/results/mistral-7b-base/ 和 outputs/results/mistral-7b-calib/ 目录下的
-评测结果文件，对比每个方法在 calib 前后的指标变化，并输出表格。
+By default reads result files under outputs/results/mistral-7b-base/ and
+outputs/results/mistral-7b-calib/, compares each method's metrics before vs after calib,
+and prints tables.
 
-你也可以通过环境变量切换模型/目录：
-- DIL_MODEL_NAME: 模型名（如 "pythia-2b" 或 "mistral-7b"），会自动拼成 "{model}-base"/"{model}-calib"
-- DIL_BASE_SUBDIR: 覆盖 base 子目录名（默认 "{model}-base"）
-- DIL_CALIB_SUBDIR: 覆盖 calib 子目录名（默认 "{model}-calib"）
+You can switch model/directory via environment variables:
+- DIL_MODEL_NAME: model name (e.g. "pythia-2b" or "mistral-7b"), expanded to "{model}-base" / "{model}-calib"
+- DIL_BASE_SUBDIR: override base subdir name (default "{model}-base")
+- DIL_CALIB_SUBDIR: override calib subdir name (default "{model}-calib")
 
-支持五种评测类型：
-- arc: 读取 **/out_arc_*.json 文件
-- bbh: 读取 bbh/lb2_bbh_*.json/**/results_*.json 文件
-- mmlu_pro: 读取 mmlu_pro/lb2_mmlu_pro_*.json/**/results_*.json 文件
-- math_hard: 读取 math_hard/lb2_math_hard_*.json/**/results_*.json 文件
-- musr: 读取 musr/lb2_musr_*.json/**/results_*.json；单文件内对三个子任务 acc_norm 按样本数加权
-    (250*murder + 256*object_placements + 250*team_allocation)/756；stderr 按独立估计做加权方差合成
-- gsm8k: 读取 **/out_gsm8k_*.json 文件
+Supported eval types:
+- arc: **/out_arc_*.json
+- bbh: bbh/lb2_bbh_*.json/**/results_*.json
+- mmlu_pro: mmlu_pro/lb2_mmlu_pro_*.json/**/results_*.json
+- math_hard: math_hard/lb2_math_hard_*.json/**/results_*.json
+- musr: musr/lb2_musr_*.json/**/results_*.json; within one file, acc_norm for three subtasks is
+    sample-weighted (250*murder + 256*object_placements + 250*team_allocation)/756; stderr is
+    combined via weighted variance of independent estimates
+- gsm8k: **/out_gsm8k_*.json
 
-通过修改文件顶部的 EVAL_TYPE 变量选择类型。
+Select type by editing EVAL_TYPE at the top of this file.
 
-命令行示例（在 DIL/outputs/ 下）：
+CLI examples (from DIL/outputs/):
   python compare_calib_results.py --eval-type musr --model pythia-2b
   python compare_calib_results.py --eval-type bbh,mmlu_pro,musr --model qwen2.5-7b
 
-可选：
+Optional:
   --aggregate-calib-runs
-      同一 loss 有多个「Method 带 _YYYYMMDD_HHMMSS」的 calib 结果时，对 Calib 侧主指标做
-      跨运行均值 ± 样本标准差（与 lm-eval 单次 stderr 不同，见 main() 内说明）。
+      When the same loss has multiple calib runs with Method suffix _YYYYMMDD_HHMMSS, report
+      cross-run mean ± sample std for Calib primary metrics (unlike lm-eval single-run stderr; see main()).
 
-不确定度说明：
-  - lm-eval 的 acc_norm_stderr 等是「单次评测」的标准误，脚本会单独成表，并可合并为「主±stderr」列。
+Uncertainty:
+  - lm-eval's acc_norm_stderr etc. are standard errors for a single evaluation run; this script
+    lists them in a separate table and can merge primary ± stderr into one column.
 """
 
 import argparse
@@ -46,13 +49,13 @@ import numpy as np
 import re
 
 # ============================================================================
-# 配置：选择评测类型
+# Config: select eval type
 # ============================================================================
-# 可选值: "arc", "bbh", "mmlu_pro", "math_hard", "musr" 或 "gsm8k"
+# Allowed: "arc", "bbh", "mmlu_pro", "math_hard", "musr", or "gsm8k"
 EVAL_TYPE = "bbh"
 # ============================================================================
 
-# MuSR 子任务全量测试样本数（用于 acc_norm 加权平均：分母 250+256+250=756）
+# MuSR subtask full test set sizes (for acc_norm weighting; denominator 250+256+250=756)
 MUSR_SUBTASK_SAMPLE_WEIGHTS: Dict[str, int] = {
     "leaderboard_musr_murder_mysteries": 250,
     "leaderboard_musr_object_placements": 256,
@@ -61,25 +64,25 @@ MUSR_SUBTASK_SAMPLE_WEIGHTS: Dict[str, int] = {
 
 
 def load_json_results(file_path: Path) -> Optional[Dict]:
-    """加载JSON评测结果文件。"""
+    """Load a JSON evaluation results file."""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         return data
     except FileNotFoundError:
-        # 文件不存在时不打印警告，静默返回None
+        # Missing file: no warning, return None
         return None
     except json.JSONDecodeError as e:
-        print(f"错误: 无法解析JSON文件 {file_path}: {e}")
+        print(f"Error: failed to parse JSON file {file_path}: {e}")
         return None
 
 
 def _pick_acc_from_sample(ex: dict) -> Optional[float]:
     """
-    从 lm-eval 的 samples jsonl 单条样本里提取 0/1 acc。
-    兼容两种常见结构：
-    - 顶层 "acc"
-    - "metrics" 里 "acc" / "acc,none" / 其他以 "acc" 开头的 key
+    Extract 0/1 acc from one lm-eval samples jsonl record.
+    Supports two common layouts:
+    - top-level "acc"
+    - under "metrics": "acc" / "acc,none" / any key starting with "acc"
     """
     if "acc" in ex and ex["acc"] is not None:
         try:
@@ -116,18 +119,18 @@ def _summarize_bernoulli(xs: List[float]) -> Dict[str, Optional[float]]:
 
 def compute_mmlu_pro_breakdown_from_samples(samples_jsonl: Path) -> Optional[Dict]:
     """
-    复用 mmlu_pro_sub_tasks.py 的聚合逻辑：
-    从 samples_leaderboard_mmlu_pro_*.jsonl 流式统计 by_category / by_src。
+    Same aggregation as mmlu_pro_sub_tasks.py:
+    stream samples_leaderboard_mmlu_pro_*.jsonl and aggregate by_category / by_src.
     """
     if not samples_jsonl.exists():
         return None
 
-    # 按 category 聚合
+    # Aggregate by category
     cat_bucket = defaultdict(list)
     cat_order: List[str] = []
     cat_seen = set()
 
-    # 按 src 聚合（更细粒度）
+    # Aggregate by src (finer granularity)
     src_bucket = defaultdict(list)
     src_order: List[str] = []
     src_seen = set()
@@ -141,7 +144,7 @@ def compute_mmlu_pro_breakdown_from_samples(samples_jsonl: Path) -> Optional[Dic
                 try:
                     ex = json.loads(line)
                 except json.JSONDecodeError:
-                    # 跳过坏行，不中断
+                    # Skip bad lines without aborting
                     continue
 
                 doc = ex.get("doc") or {}
@@ -173,9 +176,9 @@ def compute_mmlu_pro_breakdown_from_samples(samples_jsonl: Path) -> Optional[Dic
 
 def load_or_compute_mmlu_pro_breakdown(run_dir: Path) -> Tuple[Optional[Dict], List[str]]:
     """
-    优先读取 run_dir 下的 mmlu_pro_breakdown.json。
-    如果没有，则尝试从同目录下的 samples_leaderboard_mmlu_pro_*.jsonl 计算。
-    返回 (breakdown, missing_file_hints)，missing 不包含本机绝对路径。
+    Prefer mmlu_pro_breakdown.json under run_dir; else compute from
+    samples_leaderboard_mmlu_pro_*.jsonl in the same directory.
+    Returns (breakdown, missing_file_hints); hints omit absolute paths.
     """
     missing: List[str] = []
 
@@ -200,8 +203,8 @@ def load_or_compute_mmlu_pro_breakdown(run_dir: Path) -> Tuple[Optional[Dict], L
 
 def _subtask_names_for_group(data: Dict, group_key: str, task_prefix: str) -> List[str]:
     """
-    列出「多种评测情形」对应的子任务名：优先 group_subtasks[group_key]，
-    否则取 results 下所有以 task_prefix 开头且不等于 group_key 的键。
+    List subtask names for multi-setting evals: prefer group_subtasks[group_key],
+    else all results keys starting with task_prefix and not equal to group_key.
     """
     results = data.get("results") or {}
     if not isinstance(results, dict):
@@ -233,10 +236,10 @@ def _aggregate_leaderboard_metrics_from_results(
     metric_pairs: List[Tuple[str, str]],
 ) -> Dict[str, float]:
     """
-    单个 JSON 的 results 内：
-    - 若存在多个子任务（多种情形），对每个 canonical 指标，在子任务上对原始字段取算术平均；
-      stderr 类字段同样对各子任务取平均（与 acc 相同操作）。
-    - 若无子任务，则只读 group_key 对应行的汇总值（单情形）。
+    Within one JSON's results:
+    - If multiple subtasks exist, take arithmetic mean of raw fields per canonical metric across
+      subtasks; stderr-like fields are averaged the same way as acc.
+    - If no subtasks, read only the aggregate row for group_key (single setting).
     """
     results = data.get("results") or {}
     if not isinstance(results, dict):
@@ -270,13 +273,15 @@ def _aggregate_leaderboard_metrics_from_results(
 
 def _aggregate_musr_metrics_with_sample_weights(data: Dict) -> Dict[str, float]:
     """
-    MuSR 汇总 acc_norm：按各子任务测试集样本数加权
+    MuSR aggregate acc_norm: weighted by subtask test set sizes
         (250*murder_mysteries + 256*object_placements + 250*team_allocation) / 756
-    若仅部分子任务有数值，则只对「有权重的、且出现结果的」子任务用其权重做归一（分母为有效权重之和）。
+    If only some subtasks have values, normalize using weights only for subtasks that have both
+    a weight and a result (denominator = sum of effective weights).
 
-    acc_norm_stderr：各子任务估计视为独立，对加权均值用
-        sqrt(sum_i (w_i/W)^2 * se_i^2) 合成（非对 stderr 做算术平均）。
-    若无子任务或无法加权，退回读 leaderboard_musr 汇总行（与旧逻辑一致）。
+    acc_norm_stderr: treat subtask estimates as independent; for the weighted mean use
+        sqrt(sum_i (w_i/W)^2 * se_i^2) (not arithmetic mean of stderr).
+
+    If no subtasks or weighting fails, fall back to leaderboard_musr aggregate row (legacy).
     """
     results = data.get("results") or {}
     if not isinstance(results, dict):
@@ -330,7 +335,7 @@ def _aggregate_musr_metrics_with_sample_weights(data: Dict) -> Dict[str, float]:
 
 
 def extract_metrics(data: Dict, eval_type: str = "arc") -> Dict[str, float]:
-    """从评测结果中提取指标（leaderboard 类：多子任务时 bbh 等算术平均；musr 为样本加权）。"""
+    """Extract metrics from eval JSON (leaderboard: mean over subtasks for bbh etc.; musr is sample-weighted)."""
     if not data or "results" not in data:
         return {}
 
@@ -370,7 +375,7 @@ def extract_metrics(data: Dict, eval_type: str = "arc") -> Dict[str, float]:
             ],
         )
     else:
-        # 对于arc，遍历所有任务
+        # ARC: iterate all tasks
         for task_name, task_results in results.items():
             for key, value in task_results.items():
                 if isinstance(value, (int, float)):
@@ -380,8 +385,8 @@ def extract_metrics(data: Dict, eval_type: str = "arc") -> Dict[str, float]:
 
 
 def get_method_name(filename: str, eval_type: str = "arc") -> str:
-    """从文件名中提取方法名。"""
-    # 支持可选时间戳后缀：..._{YYYYMMDD_HHMMSS}.json
+    """Extract method name from filename."""
+    # Optional timestamp suffix: ..._{YYYYMMDD_HHMMSS}.json
     def strip_ts(s: str) -> str:
         m = re.match(r"^(.*)_\d{8}_\d{6}$", s)
         return m.group(1) if m else s
@@ -408,24 +413,24 @@ def get_method_name(filename: str, eval_type: str = "arc") -> str:
 
 
 def find_latest_results_file(method_dir: Path) -> Optional[Path]:
-    """在方法目录下找到最新的 results_*.json（单目录多实验时请用 enumerate_eval_results_under_run_dir）。"""
+    """Latest results_*.json under method dir (use enumerate_eval_results_under_run_dir if multiple runs)."""
     entries = enumerate_eval_results_under_run_dir(method_dir)
     if not entries:
         return None
     if len(entries) == 1:
         return entries[0][1]
-    # 兼容：多个实验目录时仍返回「最新」的一个，避免遗漏调用方崩溃；对比表应走 enumerate 逻辑
+    # Back-compat: if multiple experiment dirs, still return the newest to avoid caller crashes; use enumerate for comparison tables
     return max((p for _, p in entries), key=lambda f: (f.name, f.stat().st_mtime))
 
 
 def parse_ablation_slug_from_results_path(results_path: Path) -> str:
     """
-    从 results_*.json 向上查找目录名，解析
-    ``{family}-{loss}-calib-<消融片段>-{YYYYMMDD_HHMMSS}`` 中的 <消融片段>。
-    例如：...-dpo-calib-dbema0p5-20260325_023455... -> ``dbema0p5``；
-    ``...-calib-seed1-20260326_023439...`` -> ``seed1``；
-    多段用 ``-`` 连接：``dbema0p5-seed1``。
-    若路径中无 ``-calib-`` 或未匹配到时间戳，返回空串（保持与旧布局兼容）。
+    Walk up from results_*.json and parse <ablation> from directory names like
+    ``{family}-{loss}-calib-<ablation>-{YYYYMMDD_HHMMSS}``.
+    E.g. ...-dpo-calib-dbema0p5-20260325_023455... -> ``dbema0p5``;
+    ``...-calib-seed1-20260326_023439...`` -> ``seed1``;
+    multiple segments joined with ``-``: ``dbema0p5-seed1``.
+    If no ``-calib-`` or timestamp match, return "" (legacy layouts).
     """
     cur: Optional[Path] = results_path.parent
     for _ in range(32):
@@ -442,9 +447,9 @@ def parse_ablation_slug_from_results_path(results_path: Path) -> str:
 
 def enumerate_eval_results_under_run_dir(run_dir: Optional[Path]) -> List[Tuple[str, Path]]:
     """
-    在某个 ``lb2_*_dpo_*.json`` 运行目录下，枚举所有评测落盘（按 results 父目录去重）。
-    返回 [(ablation_slug, results_json), ...]；ablation_slug 可能为空（无消融或旧路径）。
-    同一父目录下多个 results_*.json 时取按文件名+mtime 最新的一条。
+    Under a ``lb2_*_dpo_*.json`` run directory, list all eval artifacts (dedupe by results parent).
+    Returns [(ablation_slug, results_json), ...]; ablation_slug may be empty (no ablation or old path).
+    If multiple results_*.json share a parent, keep the newest by filename + mtime.
     """
     if run_dir is None or not run_dir.exists():
         return []
@@ -469,7 +474,7 @@ def format_method_label_with_ablation(
     method_name: str, ts: Optional[str], ablation_slug: str
 ) -> str:
     """
-    Method 列：``LOSS`` / ``LOSS_ts`` / ``LOSS_ablation_ts``（ablation 中 ``-`` 换成 ``_``）。
+    Method column: ``LOSS`` / ``LOSS_ts`` / ``LOSS_ablation_ts`` (replace ``-`` in ablation with ``_``).
     """
     parts: List[str] = [method_name.upper()]
     slug = (ablation_slug or "").strip()
@@ -483,7 +488,7 @@ def format_method_label_with_ablation(
 def _pick_base_results_file(
     base_entries: List[Tuple[str, Path]], calib_ablation_slug: str
 ) -> Optional[Path]:
-    """base 侧多份结果时：优先与 calib 消融 slug 同名匹配，否则用第一份。"""
+    """When base has multiple results: match calib ablation slug if possible, else first entry."""
     if not base_entries:
         return None
     if len(base_entries) == 1:
@@ -500,7 +505,7 @@ def _compare_dirbased_eval_runs(
     base_dir: Path, calib_dir: Path, eval_type: str
 ) -> List[Dict]:
     """
-    用于 bbh / musr / math_hard / mmlu_pro：支持同一 run 目录下多个消融子目录各有一份 results。
+    For bbh / musr / math_hard / mmlu_pro: multiple ablation subdirs under one run, each with results.
     """
     base_task = base_dir / eval_type
     calib_task = calib_dir / eval_type
@@ -566,7 +571,7 @@ def _build_breakdown_method_file_map(
     base_dir: Path, calib_dir: Path, eval_sub: str
 ) -> Dict[str, Tuple[Optional[Path], Optional[Path]]]:
     """
-    供 mmlu_pro breakdown / bbh|math_hard 子任务表使用：与主对比表一致地展开消融维度。
+    For mmlu_pro breakdown and bbh|math_hard subtask tables: same ablation expansion as main table.
     """
     base_latest_dirs = _select_latest_run_dir_by_method(base_dir / eval_sub, eval_sub)
     calib_runs = _collect_runs_by_method_in_dir(calib_dir / eval_sub, eval_sub)
@@ -716,10 +721,10 @@ def _write_multi_calib_comparison_jsons(
     output_dir: Path,
 ) -> List[Path]:
     """
-    当 calib 侧存在带时间戳的输出（*_YYYYMMDD_HHMMSS.json）时：
-    - 每个 method 的每个 calib 时间戳都单独与 base（该 method 最新一份）对比
-    - 输出对比结果为 json（不影响现有 md 输出）
-    - 如果检测不到时间戳：不做任何事，保持兼容
+    When calib has timestamped outputs (*_YYYYMMDD_HHMMSS.json):
+    - Each method × each calib timestamp vs base (latest per method for base)
+    - Write comparison JSON (does not change existing md output)
+    - If no timestamp detected: no-op, backward compatible
     """
     written: List[Path] = []
 
@@ -1072,8 +1077,8 @@ def _find_mmlu_pro_latest_method_files(
     base_dir: Path, calib_dir: Path
 ) -> Dict[str, Tuple[Optional[Path], Optional[Path]]]:
     """
-    返回 {method_name: (base_results_json, calib_results_json)}，仅用于 mmlu_pro。
-    method_name 为 lb2_mmlu_pro_*.json 的后缀（小写）。
+    Return {method_name: (base_results_json, calib_results_json)} for mmlu_pro only.
+    method_name is the suffix of lb2_mmlu_pro_*.json (lowercase).
     """
     base_task_dir = base_dir / "mmlu_pro"
     calib_task_dir = calib_dir / "mmlu_pro"
@@ -1096,8 +1101,8 @@ def _find_group_latest_method_files(
     base_dir: Path, calib_dir: Path, eval_type: str
 ) -> Dict[str, Tuple[Optional[Path], Optional[Path]]]:
     """
-    返回 {method_name: (base_results_json, calib_results_json)}，用于 bbh / math_hard。
-    method_name 为 lb2_{eval_type}_*.json 的后缀（小写）。
+    Return {method_name: (base_results_json, calib_results_json)} for bbh / math_hard.
+    method_name is the suffix of lb2_{eval_type}_*.json (lowercase).
     """
     base_task_dir = base_dir / eval_type
     calib_task_dir = calib_dir / eval_type
@@ -1117,12 +1122,12 @@ def _find_group_latest_method_files(
 
 
 def compare_results(base_dir: Path, calib_dir: Path, eval_type: str = "arc"):
-    """比较base和calib目录下的评测结果。"""
+    """Compare evaluation results under base vs calib directories."""
     base_dir = Path(base_dir)
     calib_dir = Path(calib_dir)
     
     if eval_type == "arc":
-        # ARC格式：base 用每个 method 最新一份；calib 若存在多个时间戳版本，则展开为多行（Method=LOSS_时间戳）
+        # ARC: base uses latest per method; calib expands multiple timestamps to rows (Method=LOSS_timestamp)
         base_latest = _select_latest_file_by_method(base_dir, "arc")
         calib_runs = _collect_files_by_method_in_dir(calib_dir, "arc")
         all_method_names = set(base_latest.keys()) | set(calib_runs.keys())
@@ -1133,7 +1138,7 @@ def compare_results(base_dir: Path, calib_dir: Path, eval_type: str = "arc"):
             items = calib_runs.get(method_name) or []
             if not items:
                 items = [(None, None)]  # type: ignore[list-item]
-            # 时间戳优先倒序，其次按文件名
+            # Sort by timestamp desc, then filename
             items = sorted(items, key=lambda x: ((x[0] or ""), x[1].name if x[1] else ""), reverse=True)  # type: ignore[union-attr]
             for ts, calib_file in items:
                 method_label = method_name.upper() if not ts else f"{method_name.upper()}_{ts}"
@@ -1153,7 +1158,7 @@ def compare_results(base_dir: Path, calib_dir: Path, eval_type: str = "arc"):
 
                 results.extend(_compare_metric_dicts_to_rows(method_label, base_metrics, calib_metrics))
     elif eval_type == "gsm8k":
-        # GSM8K格式：base 用每个 method 最新一份；calib 若存在多个时间戳版本，则展开为多行（Method=LOSS_时间戳）
+        # GSM8K: base uses latest per method; calib expands multiple timestamps to rows (Method=LOSS_timestamp)
         base_latest = _select_latest_file_by_method(base_dir, "gsm8k")
         calib_runs = _collect_files_by_method_in_dir(calib_dir, "gsm8k")
         all_method_names = set(base_latest.keys()) | set(calib_runs.keys())
@@ -1187,19 +1192,19 @@ def compare_results(base_dir: Path, calib_dir: Path, eval_type: str = "arc"):
         results = _compare_dirbased_eval_runs(base_dir, calib_dir, eval_type)
     else:
         raise ValueError(
-            f"不支持的评测类型: {eval_type}，支持的类型: arc, bbh, mmlu_pro, math_hard, musr, gsm8k"
+            f"Unsupported eval type: {eval_type}. Allowed: arc, bbh, mmlu_pro, math_hard, musr, gsm8k"
         )
     
     return pd.DataFrame(results)
 
 
 def format_table(df: pd.DataFrame) -> str:
-    """格式化DataFrame为可读的表格字符串。"""
-    # 按方法和指标排序（合并表可能没有 Metric 列）
+    """Format DataFrame as a readable table string."""
+    # Sort by Method and Metric (merged tables may lack Metric column)
     sort_cols = ["Method", "Metric"] if "Metric" in df.columns else ["Method"]
     df_sorted = df.sort_values(sort_cols).copy()
     
-    # 格式化数值显示
+    # Format numeric display
     def format_value(val):
         if val is None:
             return 'N/A'
@@ -1219,11 +1224,11 @@ def format_table(df: pd.DataFrame) -> str:
 
 
 def df_to_markdown(df: pd.DataFrame) -> str:
-    """将DataFrame转换为Markdown表格格式（不依赖tabulate）。"""
+    """Convert DataFrame to Markdown table (no tabulate dependency)."""
     if df.empty:
         return ""
     
-    # 格式化数值显示
+    # Format numeric display
     def format_value(val):
         if val is None or (isinstance(val, float) and pd.isna(val)):
             return 'N/A'
@@ -1241,15 +1246,15 @@ def df_to_markdown(df: pd.DataFrame) -> str:
         else:
             df_formatted[col] = df_formatted[col].astype(str)
     
-    # 生成Markdown表格
+    # Build Markdown table
     lines = []
     
-    # 表头
+    # Header
     headers = list(df_formatted.columns)
     lines.append("| " + " | ".join(headers) + " |")
     lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
     
-    # 数据行
+    # Data rows
     for _, row in df_formatted.iterrows():
         values = [str(row[col]) for col in headers]
         lines.append("| " + " | ".join(values) + " |")
@@ -1259,12 +1264,12 @@ def df_to_markdown(df: pd.DataFrame) -> str:
 
 def _is_stderr_metric_name(metric: str) -> bool:
     """
-    统一判定哪些 metric 属于 stderr/方差/不确定性类。
-    兼容：
+    Classify metrics as stderr / variance / uncertainty.
+    Covers:
     - bbh: acc_norm_stderr
     - mmlu_pro: acc_stderr
     - math_hard: exact_match_stderr
-    - arc: acc_stderr, acc_norm_stderr, ...（可能带逗号后缀）
+    - arc: acc_stderr, acc_norm_stderr, ... (optional comma suffix)
     """
     if metric is None:
         return False
@@ -1273,7 +1278,7 @@ def _is_stderr_metric_name(metric: str) -> bool:
 
 
 def _split_main_and_stderr_metrics(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """将总表按 Metric 拆为 (main_metrics_df, stderr_metrics_df)。"""
+    """Split full table into (main_metrics_df, stderr_metrics_df) by Metric."""
     if df.empty or "Metric" not in df.columns:
         return df.copy(), df.iloc[0:0].copy()
     mask_stderr = df["Metric"].apply(_is_stderr_metric_name)
@@ -1284,8 +1289,8 @@ def build_mean_pm_stderr_table(
     df: pd.DataFrame, main_key: str, stderr_key: str
 ) -> pd.DataFrame:
     """
-    将同一 Method 下的主指标与 lm-eval stderr 合并为一列「值 ± stderr」（单次评测不确定度）。
-    stderr 缺失时只显示主指标数值。
+    Merge primary metric and lm-eval stderr per Method into one column (value ± stderr) for a single run.
+    If stderr is missing, show primary value only.
     """
     if df.empty or "Metric" not in df.columns:
         return pd.DataFrame()
@@ -1303,21 +1308,21 @@ def build_mean_pm_stderr_table(
             return f"{float(val):.4f}"
         return f"{float(val):.4f} ± {float(se):.4f}"
 
-    out["Base (主±stderr)"] = [
+    out["Base (main ± stderr)"] = [
         fmt_pm(v, s) for v, s in zip(out["Base"], out["Base_stderr"])
     ]
-    out["Calib (主±stderr)"] = [
+    out["Calib (main ± stderr)"] = [
         fmt_pm(v, s) for v, s in zip(out["Calib"], out["Calib_stderr"])
     ]
     return out[
-        ["Method", "Base (主±stderr)", "Calib (主±stderr)", "Change", "Change (%)"]
+        ["Method", "Base (main ± stderr)", "Calib (main ± stderr)", "Change", "Change (%)"]
     ]
 
 
 def aggregate_calib_timestamps_for_metric(df_main: pd.DataFrame, metric_name: str) -> pd.DataFrame:
     """
-    对 Method 形如「LOSS_YYYYMMDD_HHMMSS」的多条 calib 结果，按 loss 分组合并，
-    报告 Calib 列的样本均值与样本标准差（跨运行离散度，非 lm-eval stderr）。
+    For multiple calib rows with Method like LOSS_YYYYMMDD_HHMMSS, group by loss and report
+    sample mean and sample std of the Calib column (cross-run spread, not lm-eval stderr).
     """
     sub = df_main[df_main["Metric"] == metric_name].copy()
     if sub.empty:
@@ -1445,9 +1450,9 @@ def _build_mmlu_pro_breakdown_delta_tables(
     method_files: Dict[str, Tuple[Optional[Path], Optional[Path]]]
 ) -> Tuple[str, List[str]]:
     """
-    为每个 method 构建子任务 breakdown 的 Base/Calib/Δ 表（by_category/by_src）。
-    返回 (markdown_text, missing_warnings)。
-    注意：missing_warnings 不包含本机绝对路径（避免出现 __home__...）。
+    Build Base/Calib/delta subtask breakdown tables per method (by_category/by_src).
+    Returns (markdown_text, missing_warnings).
+    missing_warnings omit absolute paths (avoid __home__... in output).
     """
     md_lines: List[str] = []
     missing_warnings: List[str] = []
@@ -1456,36 +1461,39 @@ def _build_mmlu_pro_breakdown_delta_tables(
         if base_results is None and calib_results is None:
             continue
 
-        md_lines.append(f"\n\n## MMLU-PRO 子任务变化：{method_label}\n")
+        md_lines.append(f"\n\n## MMLU-PRO subtask changes: {method_label}\n")
 
         def load_breakdown_side(results_path: Optional[Path], side: str) -> Optional[Dict]:
             if results_path is None:
-                missing_warnings.append(f"{method_label} ({side}): results_*.json 缺失，跳过子任务 breakdown")
+                missing_warnings.append(
+                    f"{method_label} ({side}): missing results_*.json; skipping subtask breakdown"
+                )
                 return None
             run_dir = results_path.parent
             breakdown, missing = load_or_compute_mmlu_pro_breakdown(run_dir)
             if breakdown is None:
                 missing_warnings.append(
-                    f"{method_label} ({side}): 子任务 breakdown 缺失（mmlu_pro_breakdown.json / samples_leaderboard_mmlu_pro_*.jsonl 不存在或不可用）"
+                    f"{method_label} ({side}): subtask breakdown missing "
+                    "(no mmlu_pro_breakdown.json / samples_leaderboard_mmlu_pro_*.jsonl or unusable)"
                 )
             else:
-                # 即便 breakdown 有，也把 side 上缺失信息记录到最后汇总（不打印子任务表）
+                # Record missing hints for this side even when breakdown exists (for final summary)
                 for m in missing:
                     if m:
-                        missing_warnings.append(f"{method_label} ({side}): 缺少 {m}")
+                        missing_warnings.append(f"{method_label} ({side}): missing {m}")
             return breakdown
 
         base_breakdown = load_breakdown_side(base_results, "Base")
         calib_breakdown = load_breakdown_side(calib_results, "Calib")
 
         if not base_breakdown and not calib_breakdown:
-            md_lines.append("\n（Base/Calib 都没有可用的子任务 breakdown，已跳过）\n")
+            md_lines.append("\n(No usable subtask breakdown on Base/Calib; skipped.)\n")
             continue
 
-        for key, title in (("by_category", "按 category"), ("by_src", "按 src")):
+        for key, title in (("by_category", "By category"), ("by_src", "By src")):
             base_map = (base_breakdown or {}).get(key) or {}
             calib_map = (calib_breakdown or {}).get(key) or {}
-            # union + 保序：base 在前，calib 新增追加
+            # Union preserving order: base keys first, then new calib keys
             all_tasks = list(dict.fromkeys(list(base_map.keys()) + list(calib_map.keys())))
 
             rows = []
@@ -1529,8 +1537,8 @@ def _build_group_subtask_delta_tables(
     method_files: Dict[str, Tuple[Optional[Path], Optional[Path]]],
 ) -> str:
     """
-    为 bbh / math_hard 构建子任务变化表：不打印，只用于写入 md。
-    子任务列表优先来自 group_subtasks。
+    Build bbh / math_hard subtask delta tables for md only (not printed to terminal).
+    Subtask list prefers group_subtasks.
     """
     if eval_type == "bbh":
         group_name = "leaderboard_bbh"
@@ -1547,7 +1555,7 @@ def _build_group_subtask_delta_tables(
 
     md_lines: List[str] = []
     md_lines.append("\n\n---\n")
-    md_lines.append(f"\n# {eval_type.upper()} 子任务变化（Base vs Calib）\n")
+    md_lines.append(f"\n# {eval_type.upper()} subtask changes (Base vs Calib)\n")
 
     for method_label, (base_results, calib_results) in method_files.items():
         if base_results is None and calib_results is None:
@@ -1564,12 +1572,12 @@ def _build_group_subtask_delta_tables(
         base_results_map = (base_data or {}).get("results") or {}
         calib_results_map = (calib_data or {}).get("results") or {}
 
-        # 取子任务列表：优先 group_subtasks[group_name]，否则用 results key 前缀推断
+        # Subtask list: prefer group_subtasks[group_name], else infer from results key prefix
         base_sub = ((base_data or {}).get("group_subtasks") or {}).get(group_name) or []
         calib_sub = ((calib_data or {}).get("group_subtasks") or {}).get(group_name) or []
         subtasks = list(dict.fromkeys(list(base_sub) + list(calib_sub)))
         if not subtasks:
-            # fallback：从 results key 推断
+            # Fallback: infer from results keys
             if eval_type == "bbh":
                 prefix = "leaderboard_bbh_"
             else:
@@ -1577,10 +1585,12 @@ def _build_group_subtask_delta_tables(
             all_keys = list(dict.fromkeys(list(base_results_map.keys()) + list(calib_results_map.keys())))
             subtasks = [k for k in all_keys if isinstance(k, str) and k.startswith(prefix) and k != group_name]
 
-        md_lines.append(f"\n\n## 子任务变化：{method_label}\n")
+        md_lines.append(f"\n\n## Subtask changes: {method_label}\n")
 
         if not subtasks:
-            md_lines.append("\n（未找到子任务列表：group_subtasks 缺失，且无法从 results keys 推断）\n")
+            md_lines.append(
+                "\n(No subtask list: group_subtasks missing and could not infer from results keys.)\n"
+            )
             continue
 
         rows = []
@@ -1626,7 +1636,7 @@ _VALID_COMPARE_EVAL_TYPES = frozenset(
 
 
 def _parse_eval_types_arg(s: str) -> list[str]:
-    """支持单个类型或逗号分隔多个，如 bbh,mmlu_pro,musr。"""
+    """Single eval type or comma-separated list, e.g. bbh,mmlu_pro,musr."""
     raw = (s or "").strip().lower()
     if not raw:
         return ["arc"]
@@ -1636,8 +1646,8 @@ def _parse_eval_types_arg(s: str) -> list[str]:
     bad = [p for p in parts if p not in _VALID_COMPARE_EVAL_TYPES]
     if bad:
         raise SystemExit(
-            f"错误: 不支持的 --eval-type: {bad}\n"
-            f"       允许的值: {', '.join(sorted(_VALID_COMPARE_EVAL_TYPES))}"
+            f"Error: unsupported --eval-type: {bad}\n"
+            f"       Allowed: {', '.join(sorted(_VALID_COMPARE_EVAL_TYPES))}"
         )
     return parts
 
@@ -1650,29 +1660,29 @@ def _run_compare_eval_type(
     calib_dir: Path,
     inferred_model_name: str,
 ) -> None:
-    """对单个 eval_type 执行对比、终端输出与写入 calib_comparison_{eval_type}.md。"""
-    # 比较结果
+    """Run comparison for one eval_type: terminal output and calib_comparison_{eval_type}.md."""
+    # Comparison result
     df = compare_results(base_dir, calib_dir, eval_type)
 
     if df.empty:
-        print(f"[{eval_type}] 未找到任何评测结果，跳过。")
+        print(f"[{eval_type}] No evaluation results found; skipping.")
         return
 
     df_main, df_stderr = _split_main_and_stderr_metrics(df)
 
     if not df_main.empty:
-        print("\n[主指标 / mean 类指标]\n")
+        print("\n[Primary / mean-like metrics]\n")
         print(format_table(df_main))
     else:
-        print("\n（未找到主指标 / mean 类指标）")
+        print("\n(No primary / mean-like metrics found.)")
 
     if not df_stderr.empty:
-        print("\n[不确定性 / stderr 类指标]\n")
+        print("\n[Uncertainty / stderr-like metrics]\n")
         print(format_table(df_stderr))
     else:
-        print("\n（未找到 stderr 类指标）")
+        print("\n(No stderr-like metrics found.)")
 
-    # 主指标 ± lm-eval stderr（单次评测）
+    # Primary ± lm-eval stderr (single run)
     pm_info = [
         ("arc", "acc_norm", "acc_norm_stderr"),
         ("gsm8k", "acc", "acc_stderr"),
@@ -1689,23 +1699,23 @@ def _run_compare_eval_type(
     if pm_main and pm_stderr:
         df_pm = build_mean_pm_stderr_table(df, pm_main, pm_stderr)
         if not df_pm.empty:
-            print("\n[主指标 ± lm-eval stderr（单次评测不确定度）]\n")
+            print("\n[Primary ± lm-eval stderr (single-run uncertainty)]\n")
             print(format_table(df_pm))
         else:
-            print("\n（无法生成 主±stderr 合并表：缺少主指标行）")
+            print("\n(Cannot build primary±stderr table: missing primary metric rows.)")
 
     if args.aggregate_calib_runs and pm_main:
         df_agg = aggregate_calib_timestamps_for_metric(df_main, pm_main)
         if not df_agg.empty:
-            print("\n[跨多次 calib 时间戳：Calib 主指标 mean ± 样本std]\n")
+            print("\n[Multiple calib timestamps: Calib primary mean ± sample std]\n")
             print(
                 df_agg[["Loss", "n", "Calib mean±std"]].to_string(index=False)
             )
         elif args.aggregate_calib_runs:
-            print("\n（--aggregate-calib-runs：未找到带 _YYYYMMDD_HHMMSS 的多条记录）")
+            print("\n(--aggregate-calib-runs: no multiple rows with _YYYYMMDD_HHMMSS.)")
     print()
 
-    # 保存为Markdown表格（按模型分类：outputs/results/compare_results/{model_name}/）
+    # Save Markdown under outputs/results/compare_results/{model_name}/
     output_dir = script_dir / "results" / "compare_results" / inferred_model_name
     output_dir.mkdir(parents=True, exist_ok=True)
     output_md = output_dir / f"calib_comparison_{eval_type}.md"
@@ -1722,81 +1732,81 @@ def _run_compare_eval_type(
         group_subtask_md = _build_group_subtask_delta_tables(eval_type, method_files)
 
     with open(output_md, "w", encoding="utf-8") as f:
-        f.write(f"# Calib前后评测结果对比 ({eval_type.upper()}, 变化 = Calib - Base)\n\n")
+        f.write(f"# Base vs calib comparison ({eval_type.upper()}, change = Calib - Base)\n\n")
         df_main_md, df_stderr_md = _split_main_and_stderr_metrics(df)
         if not df_main_md.empty:
-            f.write("## 主指标（mean 类）\n\n")
+            f.write("## Primary metrics (mean-like)\n\n")
             f.write(df_to_markdown(df_main_md))
         else:
-            f.write("## 主指标（mean 类）\n\n（无）\n")
+            f.write("## Primary metrics (mean-like)\n\n(none)\n")
 
         if not df_stderr_md.empty:
-            f.write("\n\n## 不确定性（stderr 类）\n\n")
+            f.write("\n\n## Uncertainty (stderr-like)\n\n")
             f.write(df_to_markdown(df_stderr_md))
         else:
-            f.write("\n\n## 不确定性（stderr 类）\n\n（无）\n")
+            f.write("\n\n## Uncertainty (stderr-like)\n\n(none)\n")
 
         if pm_main and pm_stderr:
             df_pm_md = build_mean_pm_stderr_table(df, pm_main, pm_stderr)
             if not df_pm_md.empty:
-                f.write("\n\n## 主指标 ± lm-eval stderr（单次评测）\n\n")
+                f.write("\n\n## Primary ± lm-eval stderr (single run)\n\n")
                 f.write(
-                    "以下为同一 Method 下主指标与标准误合并展示；stderr 来自 lm-eval，"
-                    "不是多次训练之间的标准差。\n\n"
+                    "Primary metric and standard error merged per Method; stderr comes from lm-eval, "
+                    "not std across multiple training runs.\n\n"
                 )
                 f.write(df_to_markdown(df_pm_md))
 
         if args.aggregate_calib_runs and pm_main:
             df_agg_md = aggregate_calib_timestamps_for_metric(df_main, pm_main)
             if not df_agg_md.empty:
-                f.write("\n\n## 跨 calib 时间戳汇总（样本 mean ± 样本 std）\n\n")
+                f.write("\n\n## Across calib timestamps (sample mean ± sample std)\n\n")
                 f.write(
-                    "仅统计 Method 以 `_YYYYMMDD_HHMMSS` 结尾的行（中间可有消融段，如 `DPO_dbema0p5_20260325_023455`）；"
-                    "std 为多次评测结果之间的样本标准差。\n\n"
+                    "Only rows whose Method ends with `_YYYYMMDD_HHMMSS` (ablation segments allowed, "
+                    "e.g. `DPO_dbema0p5_20260325_023455`); std is sample std across multiple eval runs.\n\n"
                 )
                 f.write(df_to_markdown(df_agg_md[["Loss", "n", "Calib mean±std"]]))
 
         base_vs_bl_main = _build_baseline_comparison_df(df_main_md)
         base_vs_bl_stderr = _build_baseline_comparison_df(df_stderr_md)
         if (not base_vs_bl_main.empty) or (not base_vs_bl_stderr.empty):
-            f.write("\n\n---\n\n## 与 BASELINE 的对比（Base / Calib / Baseline）\n")
+            f.write("\n\n---\n\n## Comparison vs BASELINE (Base / Calib / Baseline)\n")
             if not base_vs_bl_main.empty:
-                f.write("\n\n### 主指标（mean 类）\n\n")
+                f.write("\n\n### Primary metrics (mean-like)\n\n")
                 f.write(df_to_markdown(base_vs_bl_main))
             else:
-                f.write("\n\n### 主指标（mean 类）\n\n（无）\n")
+                f.write("\n\n### Primary metrics (mean-like)\n\n(none)\n")
             if not base_vs_bl_stderr.empty:
-                f.write("\n\n### 不确定性（stderr 类）\n\n")
+                f.write("\n\n### Uncertainty (stderr-like)\n\n")
                 f.write(df_to_markdown(base_vs_bl_stderr))
             else:
-                f.write("\n\n### 不确定性（stderr 类）\n\n（无）\n")
+                f.write("\n\n### Uncertainty (stderr-like)\n\n(none)\n")
 
         if eval_type == "mmlu_pro" and missing_samples:
             uniq = list(dict.fromkeys(missing_samples))
-            f.write("\n\n---\n\n## 提示（缺失文件/跳过项）\n")
+            f.write("\n\n---\n\n## Notes (missing files / skipped)\n")
             for msg in uniq:
                 f.write(f"- {msg}\n")
 
         if breakdown_md.strip():
             f.write("\n\n---\n")
-            f.write("\n# MMLU-PRO 子任务 Breakdown（Base vs Calib）\n")
+            f.write("\n# MMLU-PRO subtask breakdown (Base vs Calib)\n")
             f.write(breakdown_md)
         if group_subtask_md.strip():
             f.write(group_subtask_md)
-    print(f"[{eval_type}] 结果已保存到: {output_md}")
+    print(f"[{eval_type}] Saved to: {output_md}")
 
     if eval_type == "mmlu_pro" and missing_samples:
         uniq = list(dict.fromkeys(missing_samples))
         print("\n" + "=" * 80)
-        print("提示：部分 mmlu_pro 子任务 breakdown 计算被跳过（缺少文件）")
+        print("Note: some mmlu_pro subtask breakdown steps were skipped (missing files).")
         print("=" * 80)
         for msg in uniq:
             print(f"- {msg}")
 
 
 def main():
-    """主函数。"""
-    # 命令行参数（可覆盖文件顶部配置）
+    """Entry point."""
+    # CLI overrides file-top config
     parser = argparse.ArgumentParser(description="Compare base vs calib evaluation results.")
     parser.add_argument(
         "--eval-type",
@@ -1804,8 +1814,8 @@ def main():
         default=EVAL_TYPE,
         metavar="TYPE[,TYPE,...]",
         help=(
-            f"评测类型，单个或逗号分隔多个，如 bbh,mmlu_pro,musr "
-            f"(默认来自文件: {EVAL_TYPE})。允许: {', '.join(sorted(_VALID_COMPARE_EVAL_TYPES))}。"
+            f"Eval type(s), one or comma-separated, e.g. bbh,mmlu_pro,musr "
+            f"(default from file: {EVAL_TYPE}). Allowed: {', '.join(sorted(_VALID_COMPARE_EVAL_TYPES))}."
         ),
     )
     parser.add_argument(
@@ -1819,46 +1829,44 @@ def main():
         "--aggregate-calib-runs",
         action="store_true",
         help=(
-            "对 Method 形如 LOSS_YYYYMMDD_HHMMSS 的多条记录，按 loss 汇总 Calib 主指标的 "
-            "样本均值 ± 样本标准差（跨多次 calib 跑分；与 lm-eval 单次 stderr 不同）。"
+            "For multiple rows with Method like LOSS_YYYYMMDD_HHMMSS, aggregate Calib primary metrics "
+            "by loss as sample mean ± sample std (across calib runs; unlike lm-eval single-run stderr)."
         ),
     )
     args = parser.parse_args()
 
     eval_types = _parse_eval_types_arg(str(args.eval_type))
-    print(f"评测类型: {', '.join(et.upper() for et in eval_types)}")
+    print(f"Eval type(s): {', '.join(et.upper() for et in eval_types)}")
     
-    # 设置路径
+    # Paths
     script_dir = Path(__file__).parent
-    # 目录选择优先级：
-    # CLI --model > 环境变量 DIL_MODEL_NAME > 默认 "mistral-7b"
+    # Directory resolution: CLI --model > env DIL_MODEL_NAME > default "mistral-7b"
     model_name = (args.model or os.getenv("DIL_MODEL_NAME") or "mistral-7b").strip()
-    # 如需覆盖具体子目录名，可使用环境变量：
-    # - DIL_BASE_SUBDIR / DIL_CALIB_SUBDIR
+    # Override subdir names via env: DIL_BASE_SUBDIR / DIL_CALIB_SUBDIR
     base_subdir = (os.getenv("DIL_BASE_SUBDIR") or f"{model_name}-base").strip()
     calib_subdir = (os.getenv("DIL_CALIB_SUBDIR") or f"{model_name}-calib").strip()
 
     base_dir = script_dir / "results" / base_subdir
     calib_dir = script_dir / "results" / calib_subdir
     
-    print(f"Base目录: {base_dir}")
-    print(f"Calib目录: {calib_dir}")
+    print(f"Base dir: {base_dir}")
+    print(f"Calib dir: {calib_dir}")
     print()
     
-    # 检查目录是否存在（如果都不存在则报错）
+    # Require at least one of base/calib
     if not base_dir.exists() and not calib_dir.exists():
-        print(f"错误: Base和Calib目录都不存在")
-        print(f"  Base目录: {base_dir}")
-        print(f"  Calib目录: {calib_dir}")
+        print(f"Error: neither Base nor Calib directory exists")
+        print(f"  Base dir: {base_dir}")
+        print(f"  Calib dir: {calib_dir}")
         return
     
     if not base_dir.exists():
-        print(f"提示: Base目录不存在，将只显示Calib结果: {base_dir}")
+        print(f"Note: Base dir missing; showing Calib only: {base_dir}")
     
     if not calib_dir.exists():
-        print(f"提示: Calib目录不存在，将只显示Base结果: {calib_dir}")
+        print(f"Note: Calib dir missing; showing Base only: {calib_dir}")
     
-    # 从目录名中提取模型名称（去掉-base或-calib后缀）
+    # Infer model name from directory (strip -base or -calib)
     inferred_model_name = None
     if base_dir.exists():
         inferred_model_name = base_dir.name.replace('-base', '')
@@ -1866,10 +1874,10 @@ def main():
         inferred_model_name = calib_dir.name.replace('-calib', '')
     
     if inferred_model_name is None:
-        print("错误: 无法从目录名中提取模型名称")
+        print("Error: could not infer model name from directory names")
         return
     
-    print(f"检测到模型: {inferred_model_name}")
+    print(f"Inferred model: {inferred_model_name}")
     print()
 
     for eval_type in eval_types:
