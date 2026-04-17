@@ -1209,9 +1209,13 @@ class DPOTrainer(Trainer):
         m_policy_eff = float(m_policy_vec.mean().item())
         m_ref_eff = float(m_ref_vec.mean().item())
 
-        # Rewards (log-ratio wrt reference) on effective batch
+        # Rewards (log-ratio wrt reference) on effective batch.
+        # r_w/r_l are per-sample vectors; rw/rl below are their scalar means.
         r_w = (pc - rc)
         r_l = (pr - rr)
+        rw = float(r_w.mean().item())
+        rl = float(r_l.mean().item())
+        reward_margin = rw - rl
 
         dw = None
         dl = None
@@ -1357,6 +1361,11 @@ class DPOTrainer(Trainer):
             "loss_type": loss_type,
             "zw": zw_val,
             "zl": zl_val,
+            # Keep policy logps (zw/zl) for backward compatibility, and
+            # also expose explicit reward scalars (log pi - log pi_ref).
+            "rw": rw,
+            "rl": rl,
+            "reward_margin": reward_margin,
             "m": m_val,
             "m_ref": float(m_ref_eff),
             "tilde_m": tilde_m_val,
@@ -1462,6 +1471,9 @@ class DPOTrainer(Trainer):
                 "rr_vec": rr_vec.cpu().tolist(),
                 "f_w_vec": f_w_vec.cpu().tolist(),
                 "f_l_vec": f_l_vec.cpu().tolist(),
+                # Reward vector aliases; numerically same as f_w_vec/f_l_vec.
+                "reward_w_vec": f_w_vec.cpu().tolist(),
+                "reward_l_vec": f_l_vec.cpu().tolist(),
                 "dw_vec": None if dw_cat is None else dw_cat.cpu().tolist(),
                 "dl_vec": None if dl_cat is None else dl_cat.cpu().tolist(),
             }
@@ -2010,7 +2022,7 @@ class DPOTrainer(Trainer):
         # pi_logratios = pi_logratios.to(self.accelerator.device)
         # ref_logratios = ref_logratios.to(self.accelerator.device)
         # Optional: DB calibration (forward unchanged, backward gradients rescaled)
-        policy_chosen_logps_rc, policy_rejected_logps_rc = self._maybe_apply_db_calibration(
+        policy_chosen_logps, policy_rejected_logps = self._maybe_apply_db_calibration(
             policy_chosen_logps=policy_chosen_logps,
             policy_rejected_logps=policy_rejected_logps,
             reference_chosen_logps=reference_chosen_logps,
@@ -2019,10 +2031,10 @@ class DPOTrainer(Trainer):
 
         loss_type = str(getattr(self, "loss_type", "")).upper()
         if loss_type == "SIMPO":
-            losses = -F.logsigmoid(self.beta * (policy_chosen_logps_rc-policy_rejected_logps_rc) - 1.0)
+            losses = -F.logsigmoid(self.beta * (policy_chosen_logps - policy_rejected_logps) - 1.0)
         else:
-            chosen_rewards = (policy_chosen_logps_rc - reference_chosen_logps).to(self.accelerator.device)
-            rejected_rewards = (policy_rejected_logps_rc - reference_rejected_logps).to(self.accelerator.device)
+            chosen_rewards = (policy_chosen_logps - reference_chosen_logps).to(self.accelerator.device)
+            rejected_rewards = (policy_rejected_logps - reference_rejected_logps).to(self.accelerator.device)
 
             if loss_type in ("DPO", "TIDPO"):
                 losses = -F.logsigmoid(self.beta * (chosen_rewards-rejected_rewards))
@@ -2038,7 +2050,7 @@ class DPOTrainer(Trainer):
                 losses = -chosen_rewards + rejected_rewards
 
             elif self.loss_type == "UKL":
-                chosen_rewards = policy_chosen_logps_rc
+                chosen_rewards = policy_chosen_logps
                 rejected_rewards = torch.exp((policy_rejected_logps - reference_rejected_logps))
                 losses = -chosen_rewards + rejected_rewards
 
@@ -2081,7 +2093,7 @@ class DPOTrainer(Trainer):
                 # tau = float(getattr(self.args, "ipo_tau", 0.1))
                 tau = float(getattr(self.args, "ipo_tau", 1.0))
                 target = 1.0 / (2.0 * tau)
-                tilde_m = (policy_chosen_logps_rc - policy_rejected_logps_rc) - (reference_chosen_logps - reference_rejected_logps)
+                tilde_m = (policy_chosen_logps - policy_rejected_logps) - (reference_chosen_logps - reference_rejected_logps)
                 tilde_m = tilde_m.to(self.accelerator.device)
                 losses = (tilde_m - target).pow(2)
                 
@@ -2090,19 +2102,19 @@ class DPOTrainer(Trainer):
                 lambda_nll = float(getattr(self.args, "cpo_lambda_nll", 1.0))
                 
                 # CPO Loss = L_prefer + L_NLL
-                cpo_logits = policy_chosen_logps_rc - policy_rejected_logps_rc
+                cpo_logits = policy_chosen_logps - policy_rejected_logps
                 preference_loss = -F.logsigmoid(beta * cpo_logits)
                 
-                nll_loss = -policy_chosen_logps_rc
+                nll_loss = -policy_chosen_logps
                 losses = preference_loss + lambda_nll * nll_loss
                 
             elif str(self.loss_type).upper() == "SLIC":
                 gamma = float(getattr(self.args, "slic_gamma", 1.0))
                 lambda_coef = float(getattr(self.args, "slic_lambda_coef", 0.1))
                 tau = float(getattr(self.args, "slic_tau", 0.5))
-                # cal_loss = tau * F.softplus((gamma - policy_chosen_logps_rc + policy_rejected_logps_rc) / tau)
-                cal_loss = torch.clamp(gamma - policy_chosen_logps_rc + policy_rejected_logps_rc, min=0)
-                reg_loss = -policy_chosen_logps_rc
+                # cal_loss = tau * F.softplus((gamma - policy_chosen_logps + policy_rejected_logps) / tau)
+                cal_loss = torch.clamp(gamma - policy_chosen_logps + policy_rejected_logps, min=0)
+                reg_loss = -policy_chosen_logps
 
                 losses = cal_loss + lambda_coef * reg_loss
 

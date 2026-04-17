@@ -79,6 +79,25 @@ DB_PLOT_MODE = "real"  # "real" 或 "algorithm_view"
 # "real": 使用真实dw/dl计算DB（当前行为）
 # "algorithm_view": 使用EMA平滑后的变量计算DB（算法视角）
 
+# Reward plotting view:
+# - "reward": chosen/rejected = rw/rl = log pi - log pi_ref (default)
+# - "policy": chosen/rejected = zw/zl = log pi
+REWARD_VIEW = "reward"
+if REWARD_VIEW not in {"reward", "policy"}:
+    raise ValueError(f"Unknown REWARD_VIEW={REWARD_VIEW}, expected one of: reward | policy")
+
+REWARD_CHOSEN_COL = "rw" if REWARD_VIEW == "reward" else "zw"
+REWARD_REJECTED_COL = "rl" if REWARD_VIEW == "reward" else "zl"
+REWARD_VIEW_SUFFIX = "reward" if REWARD_VIEW == "reward" else "policy"
+
+
+def with_view_suffix(path: str) -> str:
+    root, ext = os.path.splitext(path)
+    suffix = f"_{REWARD_VIEW_SUFFIX}"
+    if root.endswith(suffix):
+        return path
+    return f"{root}{suffix}{ext}"
+
 def apply_icml_style():
     if not ICML_MODE:
         return
@@ -345,7 +364,7 @@ RHO_DIST_DIRNAME = "rho_distribution"
 # Only plot these “meaningful” variables in AllVars (everything else is ignored).
 # (And we will further remove anything already plotted by Fig1..Fig5.)
 ALLVARS_ALLOWLIST: Set[str] = {
-    "zw", "zl",
+    REWARD_CHOSEN_COL, REWARD_REJECTED_COL,
     "delta_m",          # raw
     "sw_l2", "sl_l2",
     "sw_sl_dot",
@@ -358,7 +377,7 @@ ALLVARS_ALLOWLIST: Set[str] = {
 
 # Symmetric groups (draw on the same figure in AllVars)
 ALLVARS_SYMMETRIC_GROUPS = [
-    {"slug": "zw_zl",       "cols": ["zw", "zl"]},
+    {"slug": "zw_zl",       "cols": [REWARD_CHOSEN_COL, REWARD_REJECTED_COL]},
     {"slug": "dw_dl",       "cols": ["dw", "dl"]},
     {"slug": "sw_l2_sl_l2", "cols": ["sw_l2", "sl_l2"]},
 ]
@@ -375,8 +394,29 @@ def safe_slug(s: str) -> str:
     s = re.sub(r"[^a-zA-Z0-9_\-\.]+", "_", s)
     return s[:160] if len(s) > 160 else s
 
+
+def _reward_axis_title() -> str:
+    return "Rewards Over Steps" if REWARD_VIEW == "reward" else "Policy log-prob Over Steps"
+
+
+def _reward_axis_ylabel() -> str:
+    if REWARD_VIEW == "reward":
+        return r"Chosen / rejected rewards ($\log \pi - \log \pi_{\mathrm{ref}}$)"
+    return r"Chosen / rejected policy log-prob ($\log \pi$)"
+
+
+def _reward_symbol_labels() -> Tuple[str, str]:
+    if REWARD_VIEW == "reward":
+        return (r"$r_{w,t}$", r"$r_{l,t}$")
+    return (r"$z_{w,t}$", r"$z_{l,t}$")
+
 def get_all_variables_label(variable):
-    return {"zw_zl": r"Chosen / rejected rewards",
+    reward_pair_label = (
+        r"Chosen / rejected rewards ($\log \pi - \log \pi_{\mathrm{ref}}$)"
+        if REWARD_VIEW == "reward"
+        else r"Chosen / rejected policy log-prob ($\log \pi$)"
+    )
+    return {"zw_zl": reward_pair_label,
             "dw_dl": r"Incentive coefficients",
             "sw_l2_sl_l2": r"$\|\boldsymbol{s}_w\|, \|\boldsymbol{s}_l\|$",
             "delta_m": r"Displacement $\Delta m$",
@@ -398,6 +438,34 @@ def load_jsonl_as_df(jsonl_path: str) -> pd.DataFrame:
                 continue
             if not isinstance(obj, dict):
                 continue
+
+            # Backward-compatible reward scalars:
+            # old logs may only contain f_w_vec/f_l_vec (or reward_*_vec), without rw/rl.
+            def _mean_from_vec(v):
+                if not isinstance(v, list) or len(v) == 0:
+                    return None
+                arr = pd.to_numeric(pd.Series(v), errors="coerce").dropna()
+                if arr.empty:
+                    return None
+                return float(arr.mean())
+
+            if "rw" not in obj or obj.get("rw") is None:
+                rw_fallback = _mean_from_vec(obj.get("reward_w_vec"))
+                if rw_fallback is None:
+                    rw_fallback = _mean_from_vec(obj.get("f_w_vec"))
+                if rw_fallback is not None:
+                    obj["rw"] = rw_fallback
+            if "rl" not in obj or obj.get("rl") is None:
+                rl_fallback = _mean_from_vec(obj.get("reward_l_vec"))
+                if rl_fallback is None:
+                    rl_fallback = _mean_from_vec(obj.get("f_l_vec"))
+                if rl_fallback is not None:
+                    obj["rl"] = rl_fallback
+            if ("reward_margin" not in obj or obj.get("reward_margin") is None) and ("rw" in obj and "rl" in obj):
+                try:
+                    obj["reward_margin"] = float(obj["rw"]) - float(obj["rl"])
+                except Exception:
+                    pass
 
             # Keep scalars only; ignore huge *_vec lists/dicts to avoid memory blow-up.
             row: Dict[str, Any] = {}
@@ -471,14 +539,14 @@ def get_roll_min_periods(window: int) -> int:
 def ensure_m_and_delta_m(df: pd.DataFrame) -> pd.DataFrame:
     """
     Ensures:
-      - m exists (prefer logged m; else fallback m = zw - zl)
+      - m exists (prefer logged m; else fallback m = chosen - rejected under REWARD_VIEW)
       - delta_m exists as RAW step-to-step diff: delta_m[t] = m[t] - m[t-1]
     """
     df = df.sort_values("step").reset_index(drop=True)
 
     if "m" not in df.columns:
-        if "zw" in df.columns and "zl" in df.columns:
-            df["m"] = pd.to_numeric(df["zw"], errors="coerce") - pd.to_numeric(df["zl"], errors="coerce")
+        if REWARD_CHOSEN_COL in df.columns and REWARD_REJECTED_COL in df.columns:
+            df["m"] = pd.to_numeric(df[REWARD_CHOSEN_COL], errors="coerce") - pd.to_numeric(df[REWARD_REJECTED_COL], errors="coerce")
         else:
             df["m"] = np.nan
 
@@ -780,7 +848,7 @@ def plot_compare_lines(
         ax.legend(loc="best", fontsize=8)
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
     
 def plot_two_series_compare(
@@ -859,7 +927,7 @@ def plot_two_series_compare(
     ax.grid(True, linewidth=0.3, linestyle=":", alpha=0.6)
     ax.legend(loc="best", fontsize=8, frameon=False)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
 
 def plot_zw_zl_per_method(
@@ -870,11 +938,8 @@ def plot_zw_zl_per_method(
     subsample_every: int = 10,
 ) -> None:
     """
-    Plot zw/zl for a base method and its calibrated variant (if exists).
+    Plot chosen/rejected trajectories for a base method and its calibrated variant (if exists).
     Saves to: out_dir/zw_zl_sv_step_{base_label}_{model_name}.pdf
-    Curves:
-        - z_w, z_l         (original)
-        - z_w^rc, z_l^rc   (calibrated, if available)
     """
     # Collect relevant runs
     original_df = None
@@ -895,37 +960,38 @@ def plot_zw_zl_per_method(
             return None, None
         df_plot = df.iloc[::subsample_every].reset_index(drop=True)
         xs = df_plot["step"].values
-        zw = pd.to_numeric(df_plot.get("zw", pd.Series([np.nan]*len(df_plot))), errors="coerce").values
-        zl = pd.to_numeric(df_plot.get("zl", pd.Series([np.nan]*len(df_plot))), errors="coerce").values
-        return xs, (zw, zl)
+        chosen = pd.to_numeric(df_plot.get(REWARD_CHOSEN_COL, pd.Series([np.nan] * len(df_plot))), errors="coerce").values
+        rejected = pd.to_numeric(df_plot.get(REWARD_REJECTED_COL, pd.Series([np.nan] * len(df_plot))), errors="coerce").values
+        return xs, (chosen, rejected)
 
-    orig_xs, (orig_zw, orig_zl) = prepare_data(original_df)
-    calib_xs, (calib_zw, calib_zl) = prepare_data(calib_df, is_calib=True)
+    orig_xs, (orig_chosen, orig_rejected) = prepare_data(original_df)
+    calib_xs, (calib_chosen, calib_rejected) = prepare_data(calib_df, is_calib=True)
 
     # Plot
     fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
     # Original: blue
-    ax.plot(orig_xs, orig_zw, color="#1f77b4", linestyle="-", linewidth=1.2, label=r"$z_{w,t}$")
-    ax.plot(orig_xs, orig_zl, color="#7fbfff", linestyle="-", linewidth=1.2, label=r"$z_{l,t}$")
+    chosen_label, rejected_label = _reward_symbol_labels()
+    ax.plot(orig_xs, orig_chosen, color="#1f77b4", linestyle="-", linewidth=1.2, label=chosen_label)
+    ax.plot(orig_xs, orig_rejected, color="#7fbfff", linestyle="-", linewidth=1.2, label=rejected_label)
     # ax.scatter(orig_xs, orig_zw, color="#1f77b4", s=12, zorder=5, label=r"$z_{w,t}$")
     # ax.scatter(orig_xs, orig_zl, color="#7fbfff", s=12, zorder=5, label=r"$z_{l,t}$")
 
     # Calibrated: red (if exists)
     if calib_df is not None:
-        ax.plot(calib_xs, calib_zw, color="#d62728", linestyle="--", linewidth=1.2, label=r"$z_{w,t}^{\text{rc}}$")
-        ax.plot(calib_xs, calib_zl, color="#e99696", linestyle="--", linewidth=1.2, label=r"$z_{l,t}^{\text{rc}}$")
+        ax.plot(calib_xs, calib_chosen, color="#d62728", linestyle="--", linewidth=1.2, label=chosen_label + r"$^{\mathrm{rc}}$")
+        ax.plot(calib_xs, calib_rejected, color="#e99696", linestyle="--", linewidth=1.2, label=rejected_label + r"$^{\mathrm{rc}}$")
         # ax.scatter(calib_xs, calib_zw, color="#d62728", s=12, zorder=5, label=r"$z_{w,t}^{\text{rc}}$")
         # ax.scatter(calib_xs, calib_zl, color="#e99696", s=12, zorder=5, label=r"$z_{l,t}^{\text{rc}}$")
 
     ax.set_xlabel("Step")
-    ax.set_ylabel(r"Chosen / rejected rewards $z_{w,t}, z_{l,t}$")
+    ax.set_ylabel(_reward_axis_ylabel())
     ax.grid(True, linewidth=0.3, linestyle=":", alpha=0.6)
     ax.legend(loc="best", fontsize=9, frameon=True)
     fig.tight_layout()
 
     out_path = os.path.join(out_dir, f"zw_zl_sv_step_{base_label}_{model_name}.{SAVE_FORMAT}")
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
     
 def integrate_margin_ode(df: pd.DataFrame) -> pd.Series:
@@ -1019,7 +1085,7 @@ def plot_margin_with_ode(
     ax.grid(True, linewidth=0.3, linestyle=':', alpha=0.6)
     ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
 
 def adjust_log_scale(ax, num_ticks=4):
@@ -1179,14 +1245,14 @@ def plot_zw_zl_trajectories(ax, base_df, calib_df, subsample_every=1):
         
         xs = g["step"].values
         
-        if "zw" in g.columns:
-            zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"), 
+        if REWARD_CHOSEN_COL in g.columns:
+            zw_sm = smooth_series(pd.to_numeric(g[REWARD_CHOSEN_COL], errors="coerce").rename("chosen"), 
                                  force_no_smooth=False)
             ax.plot(xs, zw_sm.values, color="#1f77b4", linestyle="-",
                    linewidth=1.2, label=r"Chosen (base w/o RC)")
         
-        if "zl" in g.columns:
-            zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"),
+        if REWARD_REJECTED_COL in g.columns:
+            zl_sm = smooth_series(pd.to_numeric(g[REWARD_REJECTED_COL], errors="coerce").rename("rejected"),
                                  force_no_smooth=False)
             ax.plot(xs, zl_sm.values, color="#7fbfff", linestyle="-",
                    linewidth=1.2, label=r"Rejected (base w/o RC)")
@@ -1199,21 +1265,21 @@ def plot_zw_zl_trajectories(ax, base_df, calib_df, subsample_every=1):
         
         xs = g["step"].values
         
-        if "zw" in g.columns:
-            zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"),
+        if REWARD_CHOSEN_COL in g.columns:
+            zw_sm = smooth_series(pd.to_numeric(g[REWARD_CHOSEN_COL], errors="coerce").rename("chosen"),
                                  force_no_smooth=False)
             ax.plot(xs, zw_sm.values, color="#d62728", linestyle="--",
                    linewidth=1.2, label=r"Chosen (base w/ RC)")
         
-        if "zl" in g.columns:
-            zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"),
+        if REWARD_REJECTED_COL in g.columns:
+            zl_sm = smooth_series(pd.to_numeric(g[REWARD_REJECTED_COL], errors="coerce").rename("rejected"),
                                  force_no_smooth=False)
             ax.plot(xs, zl_sm.values, color="#e99696", linestyle="--",
                    linewidth=1.2, label=r"Rejected (base w/ RC)")
     
-    ax.set_title(r"Rewards Over Steps", fontsize=10)
+    ax.set_title(_reward_axis_title(), fontsize=10)
     ax.set_xlabel("Step")
-    ax.set_ylabel("Chosen/rejected rewards")
+    ax.set_ylabel(_reward_axis_ylabel())
     ax.grid(True, linewidth=0.3, linestyle=":", alpha=0.6)
     ax.legend(fontsize=8, loc="best")
     
@@ -1227,9 +1293,9 @@ def plot_margin(ax, base_df, calib_df, subsample_every=1):
         
         xs = g["step"].values
         
-        if "zw" in g.columns and "zl" in g.columns:
-            zw = pd.to_numeric(g["zw"], errors="coerce")
-            zl = pd.to_numeric(g["zl"], errors="coerce")
+        if REWARD_CHOSEN_COL in g.columns and REWARD_REJECTED_COL in g.columns:
+            zw = pd.to_numeric(g[REWARD_CHOSEN_COL], errors="coerce")
+            zl = pd.to_numeric(g[REWARD_REJECTED_COL], errors="coerce")
             margin = zw - zl
             margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
             ax.plot(xs, margin_sm.values, color="#1f77b4", linestyle="-",
@@ -1243,9 +1309,9 @@ def plot_margin(ax, base_df, calib_df, subsample_every=1):
         
         xs = g["step"].values
         
-        if "zw" in g.columns and "zl" in g.columns:
-            zw = pd.to_numeric(g["zw"], errors="coerce")
-            zl = pd.to_numeric(g["zl"], errors="coerce")
+        if REWARD_CHOSEN_COL in g.columns and REWARD_REJECTED_COL in g.columns:
+            zw = pd.to_numeric(g[REWARD_CHOSEN_COL], errors="coerce")
+            zl = pd.to_numeric(g[REWARD_REJECTED_COL], errors="coerce")
             margin = zw - zl
             margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
             ax.plot(xs, margin_sm.values, color="#d62728", linestyle="--",
@@ -1314,11 +1380,11 @@ def plot_zw_zl_trajectories_multicalib(
         if subsample_every > 1:
             g = g.iloc[::subsample_every].reset_index(drop=True)
         xs = g["step"].values
-        if "zw" in g.columns:
-            zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"), force_no_smooth=False)
+        if REWARD_CHOSEN_COL in g.columns:
+            zw_sm = smooth_series(pd.to_numeric(g[REWARD_CHOSEN_COL], errors="coerce").rename("chosen"), force_no_smooth=False)
             ax.plot(xs, zw_sm.values, color="#1f77b4", linestyle="-", linewidth=1.2, label=r"Chosen (w/o RC)")
-        if "zl" in g.columns:
-            zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"), force_no_smooth=False)
+        if REWARD_REJECTED_COL in g.columns:
+            zl_sm = smooth_series(pd.to_numeric(g[REWARD_REJECTED_COL], errors="coerce").rename("rejected"), force_no_smooth=False)
             ax.plot(xs, zl_sm.values, color="#7fbfff", linestyle="-", linewidth=1.2, label=r"Rejected (w/o RC)")
     for idx, (leg, df) in enumerate(calib_entries):
         if df is None or df.empty or "step" not in df.columns:
@@ -1328,15 +1394,15 @@ def plot_zw_zl_trajectories_multicalib(
             g = g.iloc[::subsample_every].reset_index(drop=True)
         xs = g["step"].values
         c = plt.cm.tab10(idx % 10)
-        if "zw" in g.columns:
-            zw_sm = smooth_series(pd.to_numeric(g["zw"], errors="coerce").rename("zw"), force_no_smooth=False)
+        if REWARD_CHOSEN_COL in g.columns:
+            zw_sm = smooth_series(pd.to_numeric(g[REWARD_CHOSEN_COL], errors="coerce").rename("chosen"), force_no_smooth=False)
             ax.plot(xs, zw_sm.values, color=c, linestyle="--", linewidth=1.1, label=f"Ch. {leg}")
-        if "zl" in g.columns:
-            zl_sm = smooth_series(pd.to_numeric(g["zl"], errors="coerce").rename("zl"), force_no_smooth=False)
+        if REWARD_REJECTED_COL in g.columns:
+            zl_sm = smooth_series(pd.to_numeric(g[REWARD_REJECTED_COL], errors="coerce").rename("rejected"), force_no_smooth=False)
             ax.plot(xs, zl_sm.values, color=c, linestyle=":", linewidth=1.0, label=f"Rej. {leg}")
-    ax.set_title(r"Rewards Over Steps", fontsize=10)
+    ax.set_title(_reward_axis_title(), fontsize=10)
     ax.set_xlabel("Step")
-    ax.set_ylabel("Chosen/rejected rewards")
+    ax.set_ylabel(_reward_axis_ylabel())
     ax.grid(True, linewidth=0.3, linestyle=":", alpha=0.6)
     ax.legend(fontsize=6, loc="best")
 
@@ -1352,9 +1418,9 @@ def plot_margin_multicalib(
         if subsample_every > 1:
             g = g.iloc[::subsample_every].reset_index(drop=True)
         xs = g["step"].values
-        if "zw" in g.columns and "zl" in g.columns:
-            zw = pd.to_numeric(g["zw"], errors="coerce")
-            zl = pd.to_numeric(g["zl"], errors="coerce")
+        if REWARD_CHOSEN_COL in g.columns and REWARD_REJECTED_COL in g.columns:
+            zw = pd.to_numeric(g[REWARD_CHOSEN_COL], errors="coerce")
+            zl = pd.to_numeric(g[REWARD_REJECTED_COL], errors="coerce")
             margin = zw - zl
             margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
             ax.plot(xs, margin_sm.values, color="#1f77b4", linestyle="-", linewidth=1.5, label=r"Margin w/o RC")
@@ -1365,10 +1431,10 @@ def plot_margin_multicalib(
         if subsample_every > 1:
             g = g.iloc[::subsample_every].reset_index(drop=True)
         xs = g["step"].values
-        if "zw" not in g.columns or "zl" not in g.columns:
+        if REWARD_CHOSEN_COL not in g.columns or REWARD_REJECTED_COL not in g.columns:
             continue
-        zw = pd.to_numeric(g["zw"], errors="coerce")
-        zl = pd.to_numeric(g["zl"], errors="coerce")
+        zw = pd.to_numeric(g[REWARD_CHOSEN_COL], errors="coerce")
+        zl = pd.to_numeric(g[REWARD_REJECTED_COL], errors="coerce")
         margin = zw - zl
         margin_sm = smooth_series(margin.rename("margin"), force_no_smooth=False)
         c = plt.cm.tab10(idx % 10)
@@ -1425,9 +1491,9 @@ def plot_objective_comprehensive_dpo_dbema_sweep(
         hspace=0.0,
     )
     out_path = os.path.join(out_dir, f"comprehensive_dpo_dbema_sweep_{model_name}.{SAVE_FORMAT}")
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0.0)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0.0)
     plt.close(fig)
-    print(f"[OK] Saved db_ema sweep comprehensive: {out_path}")
+    print(f"[OK] Saved db_ema sweep comprehensive: {with_view_suffix(out_path)}")
 
 
 def plot_objective_comprehensive(
@@ -1495,9 +1561,9 @@ def plot_objective_comprehensive(
         
     # 保存
     out_path = os.path.join(out_dir, f"comprehensive_{base_method}_{model_name}.{SAVE_FORMAT}")
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0.)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0.)
     plt.close(fig)
-    print(f"[OK] Saved comprehensive plot for {base_method}: {out_path}")
+    print(f"[OK] Saved comprehensive plot for {base_method}: {with_view_suffix(out_path)}")
     
 def plot_all_objectives_comprehensive(
     run_dfs: List[Tuple[str, pd.DataFrame]],
@@ -1635,7 +1701,7 @@ def plot_ratio_with_band_focused(
         ax.legend(loc="best", handlelength=1.2, handletextpad=0.3, frameon=True)
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
     
 def plot_rho_distribution(
@@ -1671,7 +1737,7 @@ def plot_rho_distribution(
     ax.legend(loc="best", fontsize=8, frameon=False)
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
 
 def plot_fig5_scatter_two_panels(
@@ -1726,7 +1792,7 @@ def plot_fig5_scatter_two_panels(
 
     fig.suptitle(title)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0)
+    fig.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
 
 def flatten_group_cols(groups: List[Dict[str, Any]]) -> Set[str]:
@@ -1835,18 +1901,18 @@ def plot_abstract_figure(
         
         xs = df_plot["step"].values
         
-        # 绘制zw曲线
-        if "zw" in df_plot.columns:
-            zw = pd.to_numeric(df_plot["zw"], errors="coerce")
+        # 绘制chosen曲线
+        if REWARD_CHOSEN_COL in df_plot.columns:
+            zw = pd.to_numeric(df_plot[REWARD_CHOSEN_COL], errors="coerce")
             if not zw.isna().all():
                 zw_sm = zw.ewm(span=5, adjust=False).mean()
                 zw_color = zw_colors.get(method, "#000000")
                 linestyle = "-" if "-calib" in method else "-"
                 ax.plot(xs, zw_sm.values, color=zw_color, linestyle=linestyle, linewidth=linewidth)
         
-        # 绘制zl曲线
-        if "zl" in df_plot.columns:
-            zl = pd.to_numeric(df_plot["zl"], errors="coerce")
+        # 绘制rejected曲线
+        if REWARD_REJECTED_COL in df_plot.columns:
+            zl = pd.to_numeric(df_plot[REWARD_REJECTED_COL], errors="coerce")
             if not zl.isna().all():
                 zl_sm = zl.ewm(span=5, adjust=False).mean()
                 linestyle = "-" if "-calib" in method else "-"
@@ -1854,7 +1920,7 @@ def plot_abstract_figure(
     
     ax.autoscale_view()
     if out_path:
-        plt.savefig(out_path, dpi=DPI, bbox_inches='tight', pad_inches=0,transparent=True)  
+        plt.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches='tight', pad_inches=0,transparent=True)
     
     plt.close(fig)
 
@@ -1925,7 +1991,7 @@ def plot_abstract_db_figure(
     ax.plot(xs_plot, band_center_smooth_plot, color=center_color, linewidth=linewidth * 0.8, linestyle="--", zorder=4)
 
     ax.autoscale_view()
-    plt.savefig(out_path, dpi=DPI, bbox_inches='tight', pad_inches=0, transparent=True)
+    plt.savefig(with_view_suffix(out_path), dpi=DPI, bbox_inches='tight', pad_inches=0, transparent=True)
     plt.close(fig)
     
 def generate_abstract_figures(
@@ -2272,7 +2338,7 @@ def main() -> None:
             y_min=y_min,
             y_max=y_max
         )
-        print(f"[OK] Saved: {outp}")
+        print(f"[OK] Saved: {with_view_suffix(outp)}")
 
     # # 6) AllVars vs step (filtered, non-duplicate)
     # if AUTO_PLOT_ALL_VARS:
