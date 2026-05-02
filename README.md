@@ -1,8 +1,8 @@
-# Towards Disentangled Preference Optimization Dynamics
+# Towards Disentangled Preference Optimization Dynamics: Suppress the Loser, Preserve the Winner
 
 **[中文说明 → `README_cn.md`](README_cn.md)**
 
-This repository is the official implementation for **Towards Disentangled Preference Optimization Dynamics**. The paper is **not yet accepted**; venue and final bibliographic metadata will be added after publication.
+This repository is the official implementation for **Towards Disentangled Preference Optimization Dynamics: Suppress the Loser, Preserve the Winner**. The paper is **not yet accepted**; venue and final bibliographic metadata will be added after publication.
 
 The rest of this README covers environment setup, unified preference learning via `aexperiment.sh`, legacy training scripts, batch evaluation, and optional SFT. For a full **lm-evaluation-harness** and AlpacaEval walkthrough, see **[`eval.md`](eval.md)**.
 
@@ -13,11 +13,12 @@ The rest of this README covers environment setup, unified preference learning vi
 If you use this code before the camera-ready reference is available, you can cite the work provisionally (replace `author` when the manuscript is public):
 
 ```bibtex
-@misc{disentangled_preference_optimization_dynamics,
-  title={{Towards Disentangled Preference Optimization Dynamics}},
-  author={Anonymous},
-  year={2026},
-  note={Manuscript under review; update author and venue when published}
+@inproceedings{chen2026disentangledpreferenceoptimizationdynamics,
+ title={Towards Disentangled Preference Optimization Dynamics: Suppress the Loser, Preserve the Winner},
+ author={Wei Chen and Yubing Wu and Junmei Yang and Delu Zeng and Qibin Zhao and John Paisley and Min Chen and Zhou Wang},
+ booktitle={International Conference on Machine Learning},
+ year={2026},
+ url={https://openreview.net/forum?id=TaNH4XiQ6P}
 }
 ```
 
