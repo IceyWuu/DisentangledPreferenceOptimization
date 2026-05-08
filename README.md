@@ -15,7 +15,7 @@ The rest of this README covers environment setup, unified preference learning vi
 If you use this code before the camera-ready reference is available, you can cite the work provisionally (replace `author` when the manuscript is public):
 
 ```bibtex
-@inproceedings{chen2026disentangledpreferenceoptimizationdynamics,
+@inproceedings{chen2026towards,
  title={Towards Disentangled Preference Optimization Dynamics: Suppress the Loser, Preserve the Winner},
  author={Wei Chen and Yubing Wu and Junmei Yang and Delu Zeng and Qibin Zhao and John Paisley and Min Chen and Zhou Wang},
  booktitle={International Conference on Machine Learning},
