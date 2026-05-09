@@ -2,9 +2,7 @@
 
 **[中文说明 → `README_cn.md`](README_cn.md)**
 
-This repository is the official implementation for **Towards Disentangled Preference Optimization Dynamics: Suppress the Loser, Preserve the Winner**. The paper has been **accepted**. 
-arxiv: https://arxiv.org/pdf/2604.18239
-openreview: https://openreview.net/forum?id=TaNH4XiQ6P
+This repository is the official implementation for **Towards Disentangled Preference Optimization Dynamics: Suppress the Loser, Preserve the Winner**. The paper has been **accepted** at ICML2026. [arxiv](https://arxiv.org/pdf/2604.18239), [openreview](https://openreview.net/forum?id=TaNH4XiQ6P)
 
 The rest of this README covers environment setup, unified preference learning via `aexperiment.sh`, legacy training scripts, batch evaluation, and optional SFT. For a full **lm-evaluation-harness** and AlpacaEval walkthrough, see **[`eval.md`](eval.md)**.
 
@@ -12,7 +10,7 @@ The rest of this README covers environment setup, unified preference learning vi
 
 ## Citation
 
-If you use this code before the camera-ready reference is available, you can cite the work provisionally (replace `author` when the manuscript is public):
+If you use this code before the camera-ready reference is available, you can cite the work provisionally:
 
 ```bibtex
 @inproceedings{chen2026towards,
