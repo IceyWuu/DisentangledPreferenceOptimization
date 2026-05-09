@@ -6,6 +6,8 @@ This repository is the official implementation for **Towards Disentangled Prefer
 
 The rest of this README covers environment setup, unified preference learning via `aexperiment.sh`, legacy training scripts, batch evaluation, and optional SFT. For a full **lm-evaluation-harness** and AlpacaEval walkthrough, see **[`eval.md`](eval.md)**.
 
+If you are interested in this work, feel free to contact us via weichen001.work@foxmail.com.
+
 ---
 
 ## Citation
